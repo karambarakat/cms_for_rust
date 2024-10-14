@@ -1,0 +1,19 @@
+[workspace]
+members = [
+    "client",
+
+    "query",
+    "query/query_macros",
+
+    "cms",
+    "cms/cms_macros",
+
+    "tuples_op",
+    "tuples_op/tuples_op_macros",
+
+    "better_testing",
+
+    "utils",
+]
+resolver = "2"
+
