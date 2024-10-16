@@ -1,5 +1,5 @@
+// pub mod create_table_st;
 pub mod create_table_st;
-pub(crate) mod create_table_st2;
 #[cfg(test)]
 pub mod debug_query;
 pub mod debug_sql;
@@ -21,9 +21,9 @@ pub mod macros {
 }
 
 pub mod prelude {
-    pub use crate::create_table_st::constraints::exports::*;
-    pub use crate::create_table_st::exports::*;
     pub use crate::execute_no_cache::ExecuteNoCache;
+    pub use crate::execute_no_cache::ExecuteNonSt;
+
     pub use crate::expressions::exports::*;
     pub use crate::expressions::SelectHelpers2;
     use crate::sanitize::Sanitize;
@@ -73,10 +73,10 @@ pub mod prelude {
                 header: "CREATE TABLE IF NOT EXISTS".to_string(),
                 ident: (None, name.to_string()),
                 columns: Vec::new(),
-                foreign_keys: Vec::new(),
                 ctx: Default::default(),
                 _sqlx: Default::default(),
                 verbatim: Default::default(),
+                constraints: Default::default(),
             }
         }
 
@@ -203,8 +203,7 @@ mod sql_part_ {
         /// which impl to target, here there are few new-type structs
         /// for each trait
         use crate::{
-            create_table_st2::new_constraint_trait::Constraint,
-            Accept, Query, WhereItem,
+            Accept, Constraint, Query, SchemaColumn, WhereItem,
         };
 
         pub struct WhereItemToSqlPart<T>(pub T);
@@ -252,7 +251,7 @@ mod sql_part_ {
         impl<'q, Q, S, T> ToSqlPart<Q, S> for ConstraintToSqlPart<T, Q>
         where
             S: Database,
-            T: Constraint<S>,
+            T: Constraint<S, Q>,
             Q: Query<S, SqlPart = String, Context2 = ()>,
         {
             fn to_sql_part(
@@ -262,7 +261,7 @@ mod sql_part_ {
             where
                 Q: Query<S>,
             {
-                self.0.constraint::<Q>(ctx)(&mut ())
+                self.0.constraint(ctx)(&mut ())
             }
         }
 
@@ -270,7 +269,7 @@ mod sql_part_ {
             for crate::sql_part::ColumnToSqlPart<T, Q>
         where
             S: Database,
-            T: Constraint<S>,
+            T: SchemaColumn<S, Q>,
             Q: Query<S, SqlPart = String, Context2 = ()>,
         {
             fn to_sql_part(
@@ -280,7 +279,7 @@ mod sql_part_ {
             where
                 Q: Query<S>,
             {
-                self.0.constraint::<Q>(ctx)(&mut ())
+                self.0.column(ctx)(&mut ())
             }
         }
         impl<Q, S, T> ToSqlPart<Q, S> for AcceptToSqlPart<T>
@@ -304,6 +303,9 @@ mod sql_part_ {
 pub trait Statement<S, Q: Query<S>> {
     type Init;
     fn init(init: Self::Init) -> Self;
+    fn deref_ctx(&self) -> &Q::Context1;
+    fn deref_mut_ctx(&mut self) -> &mut Q::Context1;
+    #[track_caller]
     fn _build(self) -> (String, Q::Output);
 }
 
@@ -326,6 +328,70 @@ pub trait WhereItem<S, Q: Query<S>> {
         self,
         ctx: &mut Q::Context1,
     ) -> impl FnOnce(&mut Q::Context2) -> String;
+}
+
+pub trait Constraint<S, Q: Query<S>>: Sized {
+    fn constraint(
+        self,
+        ctx: &mut Q::Context1,
+    ) -> impl FnOnce(&mut Q::Context2) -> String;
+}
+
+pub trait SchemaColumn<S, Q: Query<S>>: Sized {
+    fn column(
+        self,
+        ctx: &mut Q::Context1,
+    ) -> impl FnOnce(&mut Q::Context2) -> String;
+}
+
+#[rustfmt::skip]
+mod impl_schema_cols_for_tuples {
+    use crate::SchemaColumn;
+    use crate::Query;
+
+    macro_rules! impls {
+        ($([$ident:ident, $part:literal]),*) => {
+            impl<S, Q: Query<S>, $($ident,)*> SchemaColumn<S, Q> for ($($ident,)*)
+            where
+            $(
+                $ident: SchemaColumn<S, Q>,
+            )*
+            {
+                fn column(
+                    self,
+                    ctx: &mut Q::Context1,
+                ) -> impl FnOnce(&mut Q::Context2) -> String
+                {
+                    let ptr = ctx as *mut _;
+                    let first = (  $( paste::paste! {
+                        self.$part.column(unsafe { &mut *ptr })
+                    },)* );
+                    move |ctx2| {
+                        let mut str = Vec::new();
+
+                        paste::paste! { $(
+                            str.push(first.$part(ctx2));
+                        )* }
+
+                        str.join(" ")
+                    }
+                }
+            }
+        };
+    }
+
+    impls!([T0, 0]);
+    impls!([T0, 0], [T1, 1]);
+    impls!([T0, 0], [T1, 1], [T2, 2]);
+    impls!([T0, 0], [T1, 1], [T2, 2], [T3, 3]);
+    impls!([T0, 0], [T1, 1], [T2, 2], [T3, 3], [T4, 4]);
+    impls!([T0, 0], [T1, 1], [T2, 2], [T3, 3], [T4, 4], [T5, 5]);
+    impls!([T0, 0], [T1, 1], [T2, 2], [T3, 3], [T4, 4], [T5, 5], [T6, 6]);
+    impls!([T0, 0], [T1, 1], [T2, 2], [T3, 3], [T4, 4], [T5, 5], [T6, 6], [T7, 7]);
+    impls!([T0, 0], [T1, 1], [T2, 2], [T3, 3], [T4, 4], [T5, 5], [T6, 6], [T7, 7], [T8, 8]);
+    impls!([T0, 0], [T1, 1], [T2, 2], [T3, 3], [T4, 4], [T5, 5], [T6, 6], [T7, 7], [T8, 8], [T9, 9]);
+    impls!([T0, 0], [T1, 1], [T2, 2], [T3, 3], [T4, 4], [T5, 5], [T6, 6], [T7, 7], [T8, 8], [T9, 9], [T10, 10]);
+    impls!([T0, 0], [T1, 1], [T2, 2], [T3, 3], [T4, 4], [T5, 5], [T6, 6], [T7, 7], [T8, 8], [T9, 9], [T10, 10], [T11, 11]);
 }
 
 pub trait IntoMutArguments<'q, DB>

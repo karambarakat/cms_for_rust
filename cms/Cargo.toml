@@ -8,7 +8,7 @@ license = "MIT"
 
 [dev-dependencies]
 tuples_op = { path = "../tuples_op" }
-better_testing  = { path = "../better_testing" }
+better_testing  = { path = "../better_testing", feature = ["full"] }
 
 [dependencies]
 async-trait = "0.1.78"

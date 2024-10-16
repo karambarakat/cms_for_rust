@@ -8,6 +8,7 @@ license = "MIT"
 
 [dev-depencencies]
 better_testing = { path = "../better_testing", features = ["full"] }
+pretty_assertions = "1"
 
 [dependencies]
 case= "1.0.0"

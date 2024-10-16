@@ -5,8 +5,8 @@ use internal::{
 };
 use std::ops::Not;
 
-#[cfg(not(feature = "axum"))]
-pub(crate) mod axum;
+// #[cfg(not(feature = "axum"))]
+// pub(crate) mod axum;
 
 #[cfg(feature = "axum")]
 pub mod axum;

@@ -48,6 +48,7 @@ impl<'q, DB: Database> Execute<'q, DB>
 }
 
 impl<'s, 'q, S: Database> InnerExecutable<'s, 'q, S> {
+    #[allow(dead_code)]
     pub fn as_str(&self) -> &str {
         self.stmt
     }

@@ -32,7 +32,7 @@ where
     type Partial;
 
     fn migrate<'q>(
-        stmt: &mut CreateTableSt<'q, S, QuickQuery<'q>>,
+        stmt: &mut CreateTableSt<S, QuickQuery<'q>>,
     ) where
         for<'q1> QuickQuery<'q1>: Query<S>;
     fn table_name() -> &'static str;
@@ -195,12 +195,39 @@ impl<S: Database> inventory::Collect for DynEntitySubmitable<S> {
 }
 
 pub mod sqlx_extention {
+    use std::marker::PhantomData;
+
     use queries_for_sqlx::{
-        create_table_st::constraints::{Constraints, IsNull},
-        impl_into_mut_arguments_prelude::Type,
-        Query,
+        impl_into_mut_arguments_prelude::Type, Constraint,
+        Query, SchemaColumn,
     };
     use sqlx::Database;
+
+    pub trait IsNull {
+        fn is_null() -> bool;
+    }
+
+    mod impl_is_null_no_spectialization {
+        use super::IsNull;
+
+        impl<T> IsNull for Option<T> {
+            fn is_null() -> bool {
+                true
+            }
+        }
+
+        macro_rules! impl_no_gens {
+            ($($ident:ident)*) => {
+                $(impl IsNull for $ident {
+                    fn is_null() -> bool {
+                        false
+                    }
+                })*
+            };
+        }
+
+        impl_no_gens!(i32 i64 bool char String);
+    }
 
     pub trait SqlxQuery: Database {
         type KeyType: Type<Self> + IsNull + Send + Sync + 'static;
@@ -214,19 +241,48 @@ pub mod sqlx_extention {
         }
     }
 
+    pub struct ColumnTypeCheckIfNull<T>(PhantomData<T>);
+
+    impl<S, T> SchemaColumn<S> for ColumnTypeCheckIfNull<T>
+    where
+        S: Database,
+        T: sqlx::Type<S> + IsNull,
+    {
+        fn column<Q>(
+            self,
+            _: &mut Q::Context1,
+        ) -> impl FnOnce(&mut Q::Context2) -> String
+        where
+            Q: Query<S>,
+        {
+            use sqlx::TypeInfo;
+            let ty = T::type_info();
+            let ty = ty.name().to_string();
+            move |_| {
+                format!(
+                    "{}{}",
+                    ty,
+                    if T::is_null() { "" } else { " NOT NULL" }
+                )
+            }
+        }
+    }
+
+    fn col_type_check_if_null<T>() -> ColumnTypeCheckIfNull<T> {
+        ColumnTypeCheckIfNull(PhantomData)
+    }
+
     pub struct DefaultPrimaryKey;
 
-    impl<S: SqlxQuery, Q: Query<S>> Constraints<S, Q, S::KeyType>
-        for DefaultPrimaryKey
-    {
-        fn constraint(
+    impl<S: SqlxQuery> Constraint<S> for DefaultPrimaryKey {
+        fn constraint<Q>(
             self,
-            _ctx1: &mut Q::Context1,
-        ) -> impl FnOnce(&mut Q::Context2, &mut String)
+            _: &mut Q::Context1,
+        ) -> impl FnOnce(&mut Q::Context2) -> String
         where
-            Self: Sized,
+            Q: Query<S>,
         {
-            |_, str| str.push_str(&S::default_primary_key())
+            |_| S::default_primary_key().to_string()
         }
     }
 
@@ -262,12 +318,11 @@ pub mod impl_prelude {
     pub use core::result::Result::{self, Err, Ok};
 
     pub type MigrateArg<'q, S> =
-        CreateTableSt<'q, S, QuickQuery<'q>>;
+        CreateTableSt<S, QuickQuery<'q>>;
 
     pub use super::Entity;
     pub use super::PartialEntity;
     pub use queries_for_sqlx::create_table_st::CreateTableSt;
-    pub use queries_for_sqlx::create_table_st::SqlxQuery;
     pub use queries_for_sqlx::prelude::*;
     pub use queries_for_sqlx::quick_query::QuickQuery;
     pub use queries_for_sqlx::select_st::SelectSt;

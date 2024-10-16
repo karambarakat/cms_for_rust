@@ -5,7 +5,7 @@ use joins::{Join, JoinType};
 use crate::sql_part::{
     AcceptToSqlPart, ToSqlPart, WhereItemToSqlPart,
 };
-use crate::{Accept, Statement, Query};
+use crate::{Accept, Query, Statement};
 use crate::{SelectItem, WhereItem};
 
 pub struct SelectSt<S, Q: Query<S>> {
@@ -24,6 +24,12 @@ impl<S, Q> Statement<S, Q> for SelectSt<S, Q>
 where
     Q: Query<S>,
 {
+    fn deref_ctx(&self) -> &Q::Context1 {
+        &self.ctx
+    }
+    fn deref_mut_ctx(&mut self) -> &mut Q::Context1 {
+        &mut self.ctx
+    }
     type Init = &'static str;
     fn init(from: &'static str) -> SelectSt<S, Q> {
         SelectSt {
@@ -151,17 +157,15 @@ where
     pub fn offset<T>(&mut self, shift: T)
     where
         Q: Accept<T, S>,
-        HandleAccept<T, S, Q>: HandleAcceptIsWorking<
-            SqlPart = Q::SqlPart,
-            Ctx = Q::Context1,
-        >,
+        AcceptToSqlPart<T>: ToSqlPart<Q, S>,
     {
         if self.shift.is_some() {
             panic!("limit has been set already");
         }
 
-        let limit = HandleAccept(shift, PhantomData::<(S, Q)>)
-            .to_sql_part(&mut self.ctx);
+        let limit =
+            AcceptToSqlPart(shift).to_sql_part(&mut self.ctx);
+
         self.shift = Some(limit);
     }
 
@@ -215,21 +219,6 @@ pub trait HandleAcceptIsWorking {
     type SqlPart;
     type Ctx;
     fn to_sql_part(self, ctx: &mut Self::Ctx) -> Self::SqlPart;
-}
-
-impl<T, S, Q: Query<S>> HandleAcceptIsWorking
-    for HandleAccept<T, S, Q>
-where
-    Q: Query<S>,
-    Q: Query<S, SqlPart = String>,
-    Q: Query<S, Context2 = ()>,
-    Q: Accept<T, S>,
-{
-    type Ctx = Q::Context1;
-    type SqlPart = Q::SqlPart;
-    fn to_sql_part(self, ctx: &mut Self::Ctx) -> Q::SqlPart {
-        Q::accept(self.0, ctx)(&mut ())
-    }
 }
 
 pub mod joins {

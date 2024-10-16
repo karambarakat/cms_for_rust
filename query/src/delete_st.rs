@@ -3,7 +3,9 @@ use std::marker::PhantomData;
 use sqlx::Database;
 
 use crate::{
-    returning::ReturningClause, Query, SupportNamedBind,
+    returning::ReturningClause,
+    sql_part::{ToSqlPart, WhereItemToSqlPart},
+    Query, SupportNamedBind,
 };
 
 pub struct DeleteSt<S, Q: Query<S>, R = ()> {
@@ -30,11 +32,13 @@ impl<S, Q: Query<S>> DeleteSt<S, Q> {
 }
 
 impl<S, Q: Query<S>> DeleteSt<S, Q> {
-    pub fn where_(
-        &mut self,
-        item: impl crate::WhereItem<S, Q> + 'static,
-    ) {
-        let item = Q::handle_where_item(item, &mut self.ctx);
+    pub fn where_<W>(&mut self, item: W)
+    where
+        W: crate::WhereItem<S, Q> + 'static,
+        WhereItemToSqlPart<W>: ToSqlPart<Q, S>,
+    {
+        let item =
+            WhereItemToSqlPart(item).to_sql_part(&mut self.ctx);
         self.where_clause.push(item);
     }
 }

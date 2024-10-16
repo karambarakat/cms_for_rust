@@ -1,8 +1,12 @@
 use std::marker::PhantomData;
 
 use aliasing::HasLocal;
+use sqlx::Database;
 
-use crate::{Accept, Query, SelectItem, WhereItem};
+use crate::{
+    Accept, Constraint, Query, SchemaColumn, SelectItem,
+    WhereItem,
+};
 
 pub struct Column {
     pub(crate) name: &'static str,
@@ -241,6 +245,129 @@ impl<S> SelectItem<S> for AllColumns {
     }
 }
 
+#[derive(Clone)]
+pub struct ForiegnKey {
+    not_null: bool,
+    column: Option<&'static str>,
+    refer_table: Option<&'static str>,
+    refer_column: Option<&'static str>,
+}
+
+impl ForiegnKey {
+    pub fn build() -> Self {
+        Self {
+            not_null: false,
+            column: None,
+            refer_table: None,
+            refer_column: None,
+        }
+    }
+    #[track_caller]
+    pub fn finish(&mut self) -> Self {
+        if self.column.is_none() {
+            panic!("column is required");
+        }
+        if self.refer_table.is_none() {
+            panic!("refer_table is required");
+        }
+        if self.refer_column.is_none() {
+            panic!("refer_column is required");
+        }
+        self.to_owned()
+    }
+    pub fn not_null(&mut self) -> &mut Self {
+        self.not_null = true;
+        self
+    }
+    pub fn column(&mut self, column: &'static str) -> &mut Self {
+        self.column = Some(column);
+        self
+    }
+    pub fn refer_table(
+        &mut self,
+        refer_table: &'static str,
+    ) -> &mut Self {
+        self.refer_table = Some(refer_table);
+        self
+    }
+    pub fn refer_column(
+        &mut self,
+        refer_column: &'static str,
+    ) -> &mut Self {
+        self.refer_column = Some(refer_column);
+        self
+    }
+}
+
+impl<S, Q: Query<S>> Constraint<S, Q> for ForiegnKey {
+    fn constraint(
+        self,
+        _: &mut Q::Context1,
+    ) -> impl FnOnce(&mut Q::Context2) -> String {
+        move |_| {
+            format!(
+                "FOREIGN KEY ({}) REFERENCES {}({})",
+                self.column.expect("should have set a column on foreign_key"), 
+                self.refer_table.expect("should have set a refer_table on foreign_key"), 
+                self.refer_column.expect("should have set a refer_column on foreign_key")
+            )
+        }
+    }
+}
+
+pub struct ColumnType<T>(PhantomData<T>);
+
+impl<Q: Query<S>, S, T> SchemaColumn<S, Q> for ColumnType<T>
+where
+    S: Database,
+    T: sqlx::Type<S>,
+{
+    fn column(
+        self,
+        _: &mut Q::Context1,
+    ) -> impl FnOnce(&mut Q::Context2) -> String {
+        use sqlx::TypeInfo;
+        let ty = T::type_info();
+        let ty = ty.name().to_string();
+        move |_| format!("{}", ty,)
+    }
+}
+
+pub struct DefaultConstraint<Closure, T>(
+    Closure,
+    PhantomData<T>,
+);
+
+// impl<S, Ty, T> SchemaColumn<S> for DefaultConstraint<Ty, T>
+// where
+//     Q: Accept<T, S>,
+// {
+//     fn column<Q>(
+//         self,
+//         ctx: &mut Q::Context1,
+//     ) -> impl FnOnce(&mut Q::Context2) -> String
+//     where
+//         Q: Query<S>,
+//     {
+//         let save = Q::accept(self.0, ctx);
+//         |ctxr| format!("DEFAULT {}", save(ctx))
+//     }
+// }
+
+pub struct NotNull;
+
+impl<S, Q: Query<S>> SchemaColumn<S, Q> for NotNull
+where
+    S: Database,
+{
+    fn column(
+        self,
+        _: &mut Q::Context1,
+    ) -> impl FnOnce(&mut Q::Context2) -> String {
+        move |_| "NOT NULL".to_string()
+    }
+}
+
 pub mod exports {
     pub use super::aliasing::SelectHelpers;
     pub use super::SelectHelpers2;
@@ -264,5 +391,13 @@ pub mod exports {
         s: String,
     ) -> VerbatimNoSanitize {
         VerbatimNoSanitize(s)
+    }
+
+    pub fn foreign_key() -> ForiegnKey {
+        ForiegnKey::build()
+    }
+
+    pub fn col_type<T>() -> ColumnType<T> {
+        ColumnType(PhantomData)
     }
 }

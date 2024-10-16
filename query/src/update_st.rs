@@ -4,7 +4,7 @@ use sqlx::Database;
 
 use crate::{
     returning::ReturningClause,
-    select_st::{HandleAccept, HandleAcceptIsWorking},
+    sql_part::{AcceptToSqlPart, ToSqlPart, WhereItemToSqlPart},
     Accept, Query, SupportNamedBind, WhereItem,
 };
 
@@ -95,21 +95,20 @@ impl<S, Q: Query<S>, R> UpdateSt<S, Q, R> {
     pub fn set<T>(&mut self, column: &'static str, value: T)
     where
         Q: Accept<T, S>,
-        HandleAccept<T, S, Q>: HandleAcceptIsWorking<
-            SqlPart = Q::SqlPart,
-            Ctx = Q::Context1,
-        >,
+        AcceptToSqlPart<T>: ToSqlPart<Q, S>,
     {
-        let part = HandleAccept(value, PhantomData)
-            .to_sql_part(&mut self.ctx);
+        let part =
+            AcceptToSqlPart(value).to_sql_part(&mut self.ctx);
         self.sets.push((column, part));
     }
 
-    pub fn where_(
-        &mut self,
-        item: impl WhereItem<S, Q> + 'static,
-    ) {
-        let item = Q::handle_where_item(item, &mut self.ctx);
+    pub fn where_<I>(&mut self, item: I)
+    where
+        I: WhereItem<S, Q> + 'static,
+        WhereItemToSqlPart<I>: ToSqlPart<Q, S>,
+    {
+        let item =
+            WhereItemToSqlPart(item).to_sql_part(&mut self.ctx);
         self.where_clause.push(item);
     }
 }

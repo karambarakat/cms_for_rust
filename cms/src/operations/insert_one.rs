@@ -24,8 +24,8 @@ use tracing::warn;
 
 use crate::{
     axum_router::{error, MyError},
-    relations::get_relation,
     entities::Entity,
+    relations::get_relation,
 };
 
 #[derive(Debug, Deserialize)]
@@ -55,7 +55,6 @@ where
     for<'r> &'r str: ColumnIndex<S::Row>,
     i64: Type<S> + for<'d> Decode<'d, S> + for<'d> Encode<'d, S>,
     crate::relations::Submitable<S>: Collect,
-    // S: SubDatabase,
 {
     if input.attributes.not() {
         panic!(
@@ -120,4 +119,11 @@ where
         })),
     )
         .into_response())
+}
+
+#[cfg(test)]
+mod test_insert_one {
+    fn main() {
+        panic!("test not implemented");
+    }
 }
