@@ -10,15 +10,10 @@ use axum::{
 use case::CaseExt;
 use inventory::Collect;
 use queries_for_sqlx::{
-    execute_no_cache::ExecuteNoCache,
-    impl_into_mut_arguments_prelude::Type,
-    prelude::{
+    execute_no_cache::ExecuteNoCache, impl_into_mut_arguments_prelude::Type, prelude::{
         col, ft, stmt, verbatim__warning__does_not_sanitize,
         SelectHelpers,
-    },
-    quick_query::QuickQuery,
-    select_st::SelectSt,
-    IntoMutArguments, SupportNamedBind, SupportReturning,
+    }, quick_query::QuickQuery, select_st::SelectSt, InitStatement, IntoMutArguments, SupportNamedBind, SupportReturning
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -29,8 +24,8 @@ use tracing::warn;
 
 use crate::{
     axum_router::{error, MyError},
-    relations::{get_relation, other::OneKey},
     entities::Entity,
+    relations::{get_relation, other::OneKey},
 };
 
 use super::Id;
@@ -88,7 +83,7 @@ where
         }
     };
 
-    let mut st = stmt::select(T::table_name());
+    let mut st = stmt::SelectSt::init(T::table_name());
 
     st.where_(col("local_id").eq(move || input.query.id));
 

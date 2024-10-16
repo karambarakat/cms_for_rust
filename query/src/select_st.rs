@@ -2,10 +2,11 @@ use std::marker::PhantomData;
 
 use joins::{Join, JoinType};
 
+use crate::execute_no_cache::ExecuteNoCacheUsingSelectTrait;
 use crate::sql_part::{
     AcceptToSqlPart, ToSqlPart, WhereItemToSqlPart,
 };
-use crate::{Accept, Query, Statement};
+use crate::{Accept, InitStatement, Query, Statement};
 use crate::{SelectItem, WhereItem};
 
 pub struct SelectSt<S, Q: Query<S>> {
@@ -20,16 +21,15 @@ pub struct SelectSt<S, Q: Query<S>> {
     pub(crate) _sqlx: PhantomData<S>,
 }
 
-impl<S, Q> Statement<S, Q> for SelectSt<S, Q>
+impl<S, Q> ExecuteNoCacheUsingSelectTrait for SelectSt<S, Q> where
+    Q: Query<S>
+{
+}
+
+impl<S, Q> InitStatement for SelectSt<S, Q>
 where
     Q: Query<S>,
 {
-    fn deref_ctx(&self) -> &Q::Context1 {
-        &self.ctx
-    }
-    fn deref_mut_ctx(&mut self) -> &mut Q::Context1 {
-        &mut self.ctx
-    }
     type Init = &'static str;
     fn init(from: &'static str) -> SelectSt<S, Q> {
         SelectSt {
@@ -44,8 +44,21 @@ where
             _sqlx: PhantomData,
         }
     }
+}
+
+impl<S, Q> Statement<S, Q> for SelectSt<S, Q>
+where
+    Q: Query<S>,
+{
+    fn deref_ctx(&self) -> &Q::Context1 {
+        &self.ctx
+    }
+    fn deref_mut_ctx(&mut self) -> &mut Q::Context1 {
+        &mut self.ctx
+    }
+
     fn _build(self) -> (String, <Q as Query<S>>::Output) {
-        todo!()
+        self.build()
     }
 }
 
@@ -53,7 +66,7 @@ impl<S, Q> SelectSt<S, Q>
 where
     Q: Query<S>,
 {
-    pub fn _build(self) -> (String, Q::Output) {
+    pub fn build(self) -> (String, Q::Output) {
         Q::build_query(self.ctx, |ctx| {
             let mut str = String::from("SELECT ");
 

@@ -9,7 +9,7 @@ use axum::{
 };
 use case::CaseExt;
 use inventory::Collect;
-use queries_for_sqlx::execute_no_cache::ExecuteNoCache;
+use queries_for_sqlx::{execute_no_cache::ExecuteNoCache, InitStatement};
 use queries_for_sqlx::{
     impl_into_mut_arguments_prelude::Type, prelude::stmt,
     IntoMutArguments, SupportNamedBind, SupportReturning,
@@ -79,7 +79,7 @@ where
         }
     };
 
-    let mut st = stmt::insert_one(T::table_name());
+    let mut st = stmt::InsertStOne::init(T::table_name());
 
     input.data.clone().insert_st(&mut st);
 

@@ -9,10 +9,7 @@ use axum::{
 };
 use case::CaseExt;
 use queries_for_sqlx::{
-    execute_no_cache::ExecuteNoCache,
-    impl_into_mut_arguments_prelude::Type,
-    prelude::{col, stmt},
-    IntoMutArguments, SupportNamedBind, SupportReturning,
+    execute_no_cache::ExecuteNoCache, impl_into_mut_arguments_prelude::Type, prelude::{col, stmt}, quick_query::QuickQuery, InitStatement, IntoMutArguments, SupportNamedBind, SupportReturning
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -62,7 +59,7 @@ where
     for<'r> &'r str: ColumnIndex<S::Row>,
     i64: Type<S> + for<'d> Decode<'d, S> + for<'d> Encode<'d, S>,
 {
-    let mut st = stmt::delete(T::table_name());
+    let mut st = stmt::DeleteSt::<_, QuickQuery>::init(T::table_name());
 
     let id = input.query.id;
     st.where_(col("id").eq(move || id));

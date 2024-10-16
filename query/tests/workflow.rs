@@ -1,15 +1,3 @@
-#![allow(unused)]
-use core::panic;
-use std::marker::PhantomData;
-
-use tracing::Level;
-
-use queries_for_sqlx::{
-    debug_sql::DebugSql, prelude::*, quick_query::QuickQuery,
-    IntoMutArguments,
-};
-use sqlx::{sqlite::SqliteRow, FromRow, Sqlite};
-
 // #[tokio::test]
 // async fn query_workflow_1() {
 //     tracing_subscriber::fmt()

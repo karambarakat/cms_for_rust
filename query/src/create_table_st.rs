@@ -3,10 +3,11 @@ use std::{fmt::Display, marker::PhantomData};
 use sqlx::Database;
 
 use crate::{
+    execute_no_cache::ExecuteNoCacheUsingSelectTrait,
     sql_part::{
         ColumnToSqlPart, ConstraintToSqlPart, ToSqlPart,
     },
-    Constraint, Query, SchemaColumn, Statement,
+    Constraint, InitStatement, Query, SchemaColumn, Statement,
 };
 
 #[derive(Debug)]
@@ -66,16 +67,15 @@ impl Display for CreateTableHeader {
     }
 }
 
-impl<S, Q> Statement<S, Q> for CreateTableSt<S, Q>
+impl<S, Q: Query<S>> ExecuteNoCacheUsingSelectTrait
+    for CreateTableSt<S, Q>
+{
+}
+
+impl<S, Q> InitStatement for CreateTableSt<S, Q>
 where
     Q: Query<S>,
 {
-    fn deref_ctx(&self) -> &Q::Context1 {
-        &self.ctx
-    }
-    fn deref_mut_ctx(&mut self) -> &mut Q::Context1 {
-        &mut self.ctx
-    }
     type Init = (CreateTableHeader, &'static str);
     fn init(header: (CreateTableHeader, &'static str)) -> Self {
         Self {
@@ -87,6 +87,17 @@ where
             ctx: Default::default(),
             _sqlx: PhantomData,
         }
+    }
+}
+impl<S, Q> Statement<S, Q> for CreateTableSt<S, Q>
+where
+    Q: Query<S>,
+{
+    fn deref_ctx(&self) -> &Q::Context1 {
+        &self.ctx
+    }
+    fn deref_mut_ctx(&mut self) -> &mut Q::Context1 {
+        &mut self.ctx
     }
     #[track_caller]
     fn _build(self) -> (String, Q::Output) {

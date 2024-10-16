@@ -13,10 +13,11 @@ pub struct InsertMany<S, B, R = ()> {
     _db: PhantomData<S>,
 }
 
-impl<'q, S: Database, R>
+impl<'q, S, R>
     InsertMany<S, <S as HasArguments<'q>>::Arguments, R>
 where
     R: ReturningClause,
+    S: Database,
 {
     pub fn _build(
         self,

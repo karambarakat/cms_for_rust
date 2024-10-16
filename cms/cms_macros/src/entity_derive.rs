@@ -62,7 +62,7 @@ pub fn main(input: &DeriveInput) -> TokenStream {
 
             impl<S> PartialEntity<S> for #partial_ident
             where
-                S: SupportNamedBind + Sync + SqlxQuery,
+                S: SupportNamedBind + Sync + Database,
                 #(
                     #field_ty: Type<S> + for<'d> Encode<'d, S>,
                 )*
@@ -93,9 +93,9 @@ pub fn main(input: &DeriveInput) -> TokenStream {
                 fn migrate<'q>(
                     stmt: &mut MigrateArg<'q, S>,
                 ) {
-                    stmt.column("id", primary_key());
+                    stmt.column("id", (col_type_check_if_null::<S::KeyType>(), primary_key()));
                     #(
-                        stmt.column::<#field_ty>(#field_str, ());
+                        stmt.column(#field_str, col_type_check_if_null::<#field_ty>());
                     )*
                 }
                 fn table_name() -> &'static str {

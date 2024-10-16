@@ -1,82 +1,7 @@
-use sqlx::{database::HasArguments, Database};
-
-use crate::{execute_no_cache::ExecuteNonSt, IntoMutArguments};
-
-pub struct Local;
-
 pub struct StringQuery<I> {
     pub sql: String,
     pub input: I,
 }
-
-impl<'q, S: Database, I> ExecuteNonSt<'q, S>
-    for StringQuery<
-        I, // <S as HasArguments<'q>>::Arguments
-    >
-where
-    I: IntoMutArguments<'q, S>,
-{
-    fn build(
-        self,
-    ) -> (String, <S as HasArguments<'q>>::Arguments) {
-        let mut args = Default::default();
-        self.input.into_arguments(&mut args);
-        (self.sql, args)
-    }
-}
-
-// pub struct NullQuery;
-// impl<S: Database> Query<S> for NullQuery {
-//     type Output = <S as HasArguments<'static>>::Arguments;
-//     type Context1 = <S as HasArguments<'static>>::Arguments;
-//     type SqlPart = ();
-//     type Context2 = ();
-//
-//     fn build_sql_part_back(
-//         _: &mut Self::Context2,
-//         _: Self::SqlPart,
-//     ) -> String {
-//         panic!("null query is a no op")
-//     }
-//
-//     fn build_query(
-//         c: Self::Context1,
-//         f: impl FnOnce(&mut Self::Context2) -> String,
-//     ) -> (String, Self::Output) {
-//         (f(&mut ()), c)
-//     }
-// }
-// impl<S: Database> Statement<S, NullQuery>
-//     for StringQuery<<S as HasArguments<'static>>::Arguments>
-// where
-//     NullQuery: Query<S>,
-// {
-//     type Init =
-//         (String, <S as HasArguments<'static>>::Arguments);
-//
-//     fn init(init: Self::Init) -> Self {
-//         Self {
-//             sql: init.0,
-//             input: init.1,
-//         }
-//     }
-//
-//     fn deref_ctx(&self) -> &<NullQuery as Query<S>>::Context1 {
-//         todo!()
-//     }
-//
-//     fn deref_mut_ctx(
-//         &mut self,
-//     ) -> &mut <NullQuery as Query<S>>::Context1 {
-//         todo!()
-//     }
-//
-//     fn _build(
-//         self,
-//     ) -> (String, <NullQuery as Query<S>>::Output) {
-//         todo!()
-//     }
-// }
 
 pub mod row_into_json {
     pub struct RowIntoJson {
@@ -243,8 +168,8 @@ pub mod row_into_json {
         use serde_json::json;
 
         use crate::{
-            execute_no_cache::ExecuteNonSt,
-            prelude::stmt::string_query,
+            execute_no_cache::ExecuteNoCache,
+            string_query::StringQuery,
         };
 
         let pool =
@@ -254,8 +179,8 @@ pub mod row_into_json {
 
         let mut json_rows = RowIntoJson::sink();
 
-        string_query(
-            String::from(
+        StringQuery {
+            sql: String::from(
                 "
                 CREATE TABLE test (
                     id INTEGER PRIMARY KEY,
@@ -268,8 +193,8 @@ pub mod row_into_json {
                    ON id_=id;
             ",
             ),
-            ("Alice", "Bob", "Charlie"),
-        )
+            input: ("Alice", "Bob", "Charlie"),
+        }
         .fetch_all(&pool, json_rows.take_rows::<Sqlite>())
         .await
         .unwrap();

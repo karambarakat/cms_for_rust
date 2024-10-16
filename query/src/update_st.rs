@@ -3,9 +3,11 @@ use std::marker::PhantomData;
 use sqlx::Database;
 
 use crate::{
+    execute_no_cache::ExecuteNoCacheUsingSelectTrait,
     returning::ReturningClause,
     sql_part::{AcceptToSqlPart, ToSqlPart, WhereItemToSqlPart},
-    Accept, Query, SupportNamedBind, WhereItem,
+    Accept, InitStatement, Query, Statement, SupportNamedBind,
+    WhereItem,
 };
 
 pub struct UpdateSt<S, Q: Query<S>, R = ()> {
@@ -17,13 +19,52 @@ pub struct UpdateSt<S, Q: Query<S>, R = ()> {
     pub(crate) _sqlx: PhantomData<S>,
 }
 
+impl<S, Q: Query<S>, R> ExecuteNoCacheUsingSelectTrait
+    for UpdateSt<S, Q, R>
+{
+}
+
+impl<S, Q> InitStatement for UpdateSt<S, Q, ()>
+where
+    Q: Query<S>,
+{
+    type Init = &'static str;
+    fn init(init: Self::Init) -> Self {
+        UpdateSt {
+            sets: Vec::new(),
+            where_clause: Vec::new(),
+            ctx: Default::default(),
+            table: init,
+            returning: (),
+            _sqlx: PhantomData,
+        }
+    }
+}
+impl<S, Q, R> Statement<S, Q> for UpdateSt<S, Q, R>
+where
+    S: Database + SupportNamedBind,
+    Q: Query<S>,
+    R: ReturningClause,
+{
+    fn deref_ctx(&self) -> &Q::Context1 {
+        &self.ctx
+    }
+    fn deref_mut_ctx(&mut self) -> &mut Q::Context1 {
+        &mut self.ctx
+    }
+
+    fn _build(self) -> (String, <Q as Query<S>>::Output) {
+        self.build()
+    }
+}
+
 impl<'q, S, R, Q> UpdateSt<S, Q, R>
 where
     S: SupportNamedBind,
     S: Database,
     Q: Query<S>,
 {
-    pub fn _build(self) -> (String, Q::Output)
+    pub fn build(self) -> (String, Q::Output)
     where
         R: ReturningClause,
         S: Database + SupportNamedBind,

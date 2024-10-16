@@ -22,10 +22,15 @@ use sqlx::{Database, Executor, Pool};
 pub mod migrations_impl {
     use std::ops::Not;
 
-    use crate::utils::eventfull_list::{Context, EventfulList};
+    use crate::{
+        queries_for_sqlx_extention::SqlxQuery,
+        utils::eventfull_list::{Context, EventfulList},
+    };
     use queries_for_sqlx::{
-        prelude::{stmt, Fk},
-        SupportNamedBind,
+        create_table_st::CreateTableHeader,
+        expressions::NotNull,
+        prelude::{col_type, foreign_key, stmt},
+        InitStatement, SupportNamedBind,
     };
     use sqlx::{Database, Type};
 
@@ -54,8 +59,10 @@ pub mod migrations_impl {
                 let found = ctx.map.get_mut(table_name).unwrap();
                 T::migrate(found)
             } else {
-                let mut new =
-                    stmt::create_table_if_not_exists(table_name);
+                let mut new = stmt::CreateTableSt::init((
+                    CreateTableHeader::IfNotExists,
+                    table_name,
+                ));
                 T::migrate(&mut new);
                 ctx.map.insert(table_name.to_string(), new);
                 ctx.event(table_name);
@@ -67,11 +74,7 @@ pub mod migrations_impl {
 
     impl<S, O, M> EventfulList<TableContext<S>> for ManyToMany<O, M>
     where
-        S: Database
-            + Sync
-            + Send
-            + SupportNamedBind
-            + queries_for_sqlx::create_table_st::SqlxQuery,
+        S: Database + Sync + Send + SupportNamedBind + SqlxQuery,
         O: Send + Sync + 'static + Entity<S>,
         M: Send + Sync + 'static + Entity<S>,
         i64: Type<S>,
@@ -82,7 +85,10 @@ pub mod migrations_impl {
         ) -> Result<(), &'static str> {
             let name = self.conj_table;
             if ctx.has_event_occured(name).not() {
-                let new = stmt::create_table_if_not_exists(name);
+                let new = stmt::CreateTableSt::init((
+                    CreateTableHeader::IfNotExists,
+                    name,
+                ));
 
                 ctx.map.insert(name.to_string(), new);
                 ctx.event(name);
@@ -90,19 +96,33 @@ pub mod migrations_impl {
 
             let table = ctx.map.get_mut(name).unwrap();
 
-            table.foreign_key(Fk {
-                not_null: false,
-                column: self.rel_fk,
-                refer_table: self.rel_t,
-                refer_column: "id",
-            });
+            table.column(
+                self.rel_fk,
+                (col_type::<S::KeyType>(), NotNull),
+            );
 
-            table.foreign_key(Fk {
-                not_null: false,
-                column: self.base_fk,
-                refer_table: self.base_t,
-                refer_column: "id",
-            });
+            table.constraint(
+                foreign_key()
+                    .column(self.rel_fk)
+                    .refer_table(self.rel_t)
+                    .refer_column("id")
+                    .on_delete_cascade()
+                    .finish(),
+            );
+
+            table.column(
+                self.base_fk,
+                (col_type::<S::KeyType>(), NotNull),
+            );
+
+            table.constraint(
+                foreign_key()
+                    .column(self.base_fk)
+                    .refer_table(self.base_t)
+                    .refer_column("id")
+                    .on_delete_cascade()
+                    .finish(),
+            );
 
             Ok(())
         }
@@ -111,11 +131,7 @@ pub mod migrations_impl {
     impl<S, O, M> EventfulList<TableContext<S>>
         for OptionalToMany<O, M>
     where
-        S: Database
-            + Sync
-            + Send
-            + SupportNamedBind
-            + queries_for_sqlx::create_table_st::SqlxQuery,
+        S: Database + Sync + Send + SupportNamedBind + SqlxQuery,
         O: Send + Sync + 'static + Entity<S>,
         M: Send + Sync + 'static + Entity<S>,
     {
@@ -125,7 +141,10 @@ pub mod migrations_impl {
         ) -> Result<(), &'static str> {
             let name = O::table_name();
             if ctx.has_event_occured(name).not() {
-                let new = stmt::create_table_if_not_exists(name);
+                let new = stmt::CreateTableSt::init((
+                    CreateTableHeader::IfNotExists,
+                    name,
+                ));
 
                 ctx.map.insert(name.to_string(), new);
                 ctx.event(name);
@@ -133,12 +152,16 @@ pub mod migrations_impl {
 
             let table = ctx.map.get_mut(name).unwrap();
 
-            table.foreign_key(Fk {
-                not_null: false,
-                column: self.0,
-                refer_table: M::table_name(),
-                refer_column: "id",
-            });
+            table.column(self.0, col_type::<S::KeyType>());
+
+            table.constraint(
+                foreign_key()
+                    .column(self.0)
+                    .refer_table(M::table_name())
+                    .refer_column("id")
+                    .on_delete_set_null()
+                    .finish(),
+            );
 
             Ok(())
         }
@@ -163,7 +186,7 @@ where
 {
     pub(crate) map: HashMap<
         String,
-        CreateTableSt<'static, DB, QuickQuery<'static>>,
+        CreateTableSt<DB, QuickQuery<'static>>,
     >,
 }
 

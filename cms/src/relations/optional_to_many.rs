@@ -2,16 +2,10 @@ use std::{marker::PhantomData, mem::take, pin::Pin};
 
 use futures_util::Future;
 use queries_for_sqlx::{
-    execute_no_cache::ExecuteNoCache,
-    insert_one_st::InsertStOne,
-    prelude::{col, stmt},
-    quick_query::QuickQuery,
-    select_st::{
+    execute_no_cache::ExecuteNoCache, insert_one_st::InsertStOne, prelude::{col, stmt}, quick_query::QuickQuery, select_st::{
         joins::{join_type, Join},
         SelectSt,
-    },
-    update_st::UpdateSt,
-    SupportNamedBind,
+    }, update_st::UpdateSt, InitStatement, SupportNamedBind
 };
 use serde_json::{from_value, json, Value};
 use sqlx::{
@@ -179,7 +173,7 @@ where
     {
         Box::pin(async move {
             let mut st =
-                stmt::select(self.related_entity.table_name());
+                stmt::SelectSt::init(self.related_entity.table_name());
 
             let id = self.input;
             st.where_(col("id").eq(move || id));
@@ -260,7 +254,7 @@ where
     {
         Box::pin(async move {
             let mut st =
-                stmt::select(self.related_entity.table_name());
+                stmt::SelectSt::init(self.related_entity.table_name());
 
             // limit here used to work for many-to-many
             // relations, where I add : where base_id = 1

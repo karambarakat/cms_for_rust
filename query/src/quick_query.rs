@@ -35,6 +35,7 @@ impl<'q, S: Database + SupportNamedBind> Query<S>
         (f(&mut ()), ctx1.1)
     }
 }
+
 impl<'q, A, A2, S> Accept<A, S> for QuickQuery<'q>
 where
     S: Database,

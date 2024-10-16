@@ -12,7 +12,7 @@ use queries_for_sqlx::{
     execute_no_cache::ExecuteNoCache,
     impl_into_mut_arguments_prelude::Type,
     prelude::{col, stmt},
-    SupportNamedBind, SupportReturning,
+    InitStatement, SupportNamedBind, SupportReturning,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -91,7 +91,7 @@ where
         }
     };
 
-    let mut st = stmt::update(T::table_name());
+    let mut st = stmt::UpdateSt::init(T::table_name());
 
     let id = input.query.id;
     st.where_(col("id").eq(move || id));

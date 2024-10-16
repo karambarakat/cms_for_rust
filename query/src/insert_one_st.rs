@@ -5,7 +5,7 @@ use sqlx::{
 };
 
 use crate::{
-    returning::ReturningClause, IntoMutArguments,
+    returning::ReturningClause, InitStatement, IntoMutArguments,
     SupportNamedBind, SupportReturning,
 };
 
@@ -16,6 +16,23 @@ pub struct InsertStOne<'q, S: Database, R = ()> {
     pub(crate) buffer: <S as HasArguments<'q>>::Arguments,
     pub(crate) returning: R,
     pub(crate) _pd: PhantomData<(S, &'q ())>,
+}
+
+impl<'q, S> InitStatement for InsertStOne<'_, S, ()>
+where
+    S: Database,
+{
+    type Init = &'static str;
+    fn init(init: Self::Init) -> Self {
+        InsertStOne {
+            input: Vec::new(),
+            output: None,
+            from: init,
+            buffer: Default::default(),
+            returning: (),
+            _pd: PhantomData,
+        }
+    }
 }
 
 impl<'q, S, R> InsertStOne<'q, S, R>

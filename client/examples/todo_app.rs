@@ -185,7 +185,7 @@ pub mod testing_prelude {
     }
 }
 
-#[allow(unused)]
+#[cfg(test)]
 mod test {
     use std::{mem::swap, ops::Not};
 
@@ -391,15 +391,15 @@ mod test {
                         },
                         "attributes": true,
                         "relations": {
-                            "category": { 
-                                "data": { "id": 2 }, 
+                            "category": {
+                                "data": { "id": 2 },
                                 "id": true,
-                                "attributes": true 
+                                "attributes": true
                             },
-                            "tags": { 
-                                 "data": [{ "id": 1 }, { "id": 2 }], 
+                            "tags": {
+                                 "data": [{ "id": 1 }, { "id": 2 }],
                                  "id": true,
-                                 "attributes": true 
+                                 "attributes": true
                             },
                         },
                     }))

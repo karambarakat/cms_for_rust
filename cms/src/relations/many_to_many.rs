@@ -2,10 +2,10 @@ use std::{marker::PhantomData, mem::take, pin::Pin, sync::Arc};
 
 use futures_util::Future;
 use queries_for_sqlx::{
-    execute_no_cache::ExecuteNoCache, insert_one_st::InsertStOne, prelude::{col, ft, stmt::{self, string_query}, SelectHelpers}, quick_query::QuickQuery, select_st::{
+    execute_no_cache::ExecuteNoCache, insert_one_st::InsertStOne, prelude::{col, ft, stmt, SelectHelpers}, quick_query::QuickQuery, select_st::{
         joins::{join_type, Join},
         SelectSt,
-    }, update_st::UpdateSt, SupportNamedBind
+    }, update_st::UpdateSt, InitStatement, SupportNamedBind
 };
 use serde::Deserialize;
 use serde_json::{from_value, json, Value};
@@ -204,7 +204,7 @@ struct RelationStructure<R> {
                     self.input.iter().map(|e| format!("({}, {})", e, id)).collect::<Vec<_>>().join(", ")
                 );
 
-                let res = string_query(str, ()).execute(&pool).await.unwrap();
+                let res = stmt::StringQuery { sql: str, input: () }.execute(&pool).await.unwrap();
 
                 let str = format!("SELECT * FROM {} LEFT JOIN {} ON id = {} WHERE {}.{} = {id}",
                     self.related_entity.table_name(),
@@ -215,7 +215,7 @@ struct RelationStructure<R> {
                     self.lk,
                 );
 
-                let res = string_query(str, ()).fetch_all(&pool, |row| {
+                let res = stmt::StringQuery { sql: str, input: () }.fetch_all(&pool, |row| {
                     let value = self.related_entity.from_row2(&row)?;
                     let id : i64 = row.get("id");
                     return Ok(json!({
@@ -299,14 +299,14 @@ struct RelationStructure<R> {
                     self.input.iter().map(|e| format!("({}, {})", e, id)).collect::<Vec<_>>().join(", ")
                 );
 
-                let res = string_query(str, ()).execute(&pool).await.unwrap();
+                let res = stmt::StringQuery { sql: str, input: ()}.execute(&pool).await.unwrap();
 
                 let str = format!("SELECT * FROM {} WHERE {}",
                     self.related_entity.table_name(),
                     self.input.iter().map(|e| format!("id = {}", e)).collect::<Vec<_>>().join(" OR ")
                 );
 
-                let res = string_query(str, ()).fetch_all(&pool, |row| {
+                let res = stmt::StringQuery { sql: str, input: ()}.fetch_all(&pool, |row| {
                     let value = self.related_entity.from_row2(&row)?;
                     let id : i64 = row.get("id");
                     return Ok(json!({
@@ -376,7 +376,7 @@ struct RelationStructure<R> {
             S: Database + SupportNamedBind,
         {
             Box::pin(async move {
-                let mut st = stmt::select(self.conj_table);
+                let mut st = stmt::SelectSt::init(self.conj_table);
 
                 self.related_entity.on_select(&mut st);
 

@@ -251,6 +251,7 @@ pub struct ForiegnKey {
     column: Option<&'static str>,
     refer_table: Option<&'static str>,
     refer_column: Option<&'static str>,
+    on_delete_clause: Option<&'static str>,
 }
 
 impl ForiegnKey {
@@ -260,6 +261,7 @@ impl ForiegnKey {
             column: None,
             refer_table: None,
             refer_column: None,
+            on_delete_clause: None,
         }
     }
     #[track_caller]
@@ -274,6 +276,14 @@ impl ForiegnKey {
             panic!("refer_column is required");
         }
         self.to_owned()
+    }
+    pub fn on_delete_set_null(&mut self) -> &mut Self {
+        self.on_delete_clause = Some("ON DELETE SET NULL");
+        self
+    }
+    pub fn on_delete_cascade(&mut self) -> &mut Self {
+        self.on_delete_clause = Some("ON DELETE CASCADE");
+        self
     }
     pub fn not_null(&mut self) -> &mut Self {
         self.not_null = true;
@@ -306,10 +316,15 @@ impl<S, Q: Query<S>> Constraint<S, Q> for ForiegnKey {
     ) -> impl FnOnce(&mut Q::Context2) -> String {
         move |_| {
             format!(
-                "FOREIGN KEY ({}) REFERENCES {}({})",
+                "FOREIGN KEY ({}) REFERENCES {}({}){}",
                 self.column.expect("should have set a column on foreign_key"), 
                 self.refer_table.expect("should have set a refer_table on foreign_key"), 
-                self.refer_column.expect("should have set a refer_column on foreign_key")
+                self.refer_column.expect("should have set a refer_column on foreign_key"),
+                match self.on_delete_clause {
+                    Some(s) => format!(" {}", s),
+                    None => "".to_string(),
+                }
+
             )
         }
     }
@@ -333,26 +348,24 @@ where
     }
 }
 
-pub struct DefaultConstraint<Closure, T>(
-    Closure,
+pub struct DefaultConstraint<ToBeAccepted, T>(
+    ToBeAccepted,
     PhantomData<T>,
 );
 
-// impl<S, Ty, T> SchemaColumn<S> for DefaultConstraint<Ty, T>
-// where
-//     Q: Accept<T, S>,
-// {
-//     fn column<Q>(
-//         self,
-//         ctx: &mut Q::Context1,
-//     ) -> impl FnOnce(&mut Q::Context2) -> String
-//     where
-//         Q: Query<S>,
-//     {
-//         let save = Q::accept(self.0, ctx);
-//         |ctxr| format!("DEFAULT {}", save(ctx))
-//     }
-// }
+impl<S, ToBeAccepted, T, Q> SchemaColumn<S, Q>
+    for DefaultConstraint<ToBeAccepted, T>
+where
+    Q: Accept<ToBeAccepted, S>,
+{
+    fn column(
+        self,
+        ctx: &mut Q::Context1,
+    ) -> impl FnOnce(&mut Q::Context2) -> String {
+        let save = Q::accept(self.0, ctx);
+        |ctxr| format!("DEFAULT {}", save(ctxr))
+    }
+}
 
 pub struct NotNull;
 

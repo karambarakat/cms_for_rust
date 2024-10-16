@@ -31,9 +31,8 @@ where
 {
     type Partial;
 
-    fn migrate<'q>(
-        stmt: &mut CreateTableSt<S, QuickQuery<'q>>,
-    ) where
+    fn migrate<'q>(stmt: &mut CreateTableSt<S, QuickQuery<'q>>)
+    where
         for<'q1> QuickQuery<'q1>: Query<S>;
     fn table_name() -> &'static str;
     fn insert_st(self, st: &mut InsertStOne<S>)
@@ -195,100 +194,7 @@ impl<S: Database> inventory::Collect for DynEntitySubmitable<S> {
 }
 
 pub mod sqlx_extention {
-    use std::marker::PhantomData;
-
-    use queries_for_sqlx::{
-        impl_into_mut_arguments_prelude::Type, Constraint,
-        Query, SchemaColumn,
-    };
-    use sqlx::Database;
-
-    pub trait IsNull {
-        fn is_null() -> bool;
-    }
-
-    mod impl_is_null_no_spectialization {
-        use super::IsNull;
-
-        impl<T> IsNull for Option<T> {
-            fn is_null() -> bool {
-                true
-            }
-        }
-
-        macro_rules! impl_no_gens {
-            ($($ident:ident)*) => {
-                $(impl IsNull for $ident {
-                    fn is_null() -> bool {
-                        false
-                    }
-                })*
-            };
-        }
-
-        impl_no_gens!(i32 i64 bool char String);
-    }
-
-    pub trait SqlxQuery: Database {
-        type KeyType: Type<Self> + IsNull + Send + Sync + 'static;
-        fn default_primary_key() -> &'static str;
-    }
-
-    impl SqlxQuery for sqlx::Sqlite {
-        type KeyType = i64;
-        fn default_primary_key() -> &'static str {
-            "PRIMARY KEY AUTOINCREMENT"
-        }
-    }
-
-    pub struct ColumnTypeCheckIfNull<T>(PhantomData<T>);
-
-    impl<S, T> SchemaColumn<S> for ColumnTypeCheckIfNull<T>
-    where
-        S: Database,
-        T: sqlx::Type<S> + IsNull,
-    {
-        fn column<Q>(
-            self,
-            _: &mut Q::Context1,
-        ) -> impl FnOnce(&mut Q::Context2) -> String
-        where
-            Q: Query<S>,
-        {
-            use sqlx::TypeInfo;
-            let ty = T::type_info();
-            let ty = ty.name().to_string();
-            move |_| {
-                format!(
-                    "{}{}",
-                    ty,
-                    if T::is_null() { "" } else { " NOT NULL" }
-                )
-            }
-        }
-    }
-
-    fn col_type_check_if_null<T>() -> ColumnTypeCheckIfNull<T> {
-        ColumnTypeCheckIfNull(PhantomData)
-    }
-
-    pub struct DefaultPrimaryKey;
-
-    impl<S: SqlxQuery> Constraint<S> for DefaultPrimaryKey {
-        fn constraint<Q>(
-            self,
-            _: &mut Q::Context1,
-        ) -> impl FnOnce(&mut Q::Context2) -> String
-        where
-            Q: Query<S>,
-        {
-            |_| S::default_primary_key().to_string()
-        }
-    }
-
-    pub fn primary_key() -> DefaultPrimaryKey {
-        DefaultPrimaryKey
-    }
+    pub use crate::queries_for_sqlx_extention::*;
 }
 
 pub mod derive_prelude {
@@ -322,6 +228,7 @@ pub mod impl_prelude {
 
     pub use super::Entity;
     pub use super::PartialEntity;
+    pub use crate::queries_for_sqlx_extention::*;
     pub use queries_for_sqlx::create_table_st::CreateTableSt;
     pub use queries_for_sqlx::prelude::*;
     pub use queries_for_sqlx::quick_query::QuickQuery;
@@ -333,5 +240,6 @@ pub mod impl_prelude {
     pub use sqlx;
     pub use sqlx::prelude::*;
     pub use sqlx::ColumnIndex;
+    pub use sqlx::Database;
     pub use sqlx::Row;
 }
