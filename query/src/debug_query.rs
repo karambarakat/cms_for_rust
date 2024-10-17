@@ -1,96 +1,50 @@
-use core::fmt;
-use sqlx::{
-    database::HasArguments, prelude::Type, Database, Encode,
+use std::{any::Any, marker::PhantomData};
+
+use sqlx::{database::HasArguments, Database};
+
+use crate::positional_buffer::PositionalStaticBuffer;
+use crate::{
+    execute_no_cache::ExecuteNoCache, Query, Statement,
 };
 
-use crate::{Accept, Query, Statement};
-
-pub struct DebugQuery;
-
-pub trait Value<S: Database> {
-    fn debug(&self) -> String;
-    fn clone_to_box(&self) -> Box<dyn Value<S>>;
-    fn encode(
-        &self,
-        buf: &mut <S as HasArguments<'static>>::Arguments,
-    );
+pub struct DebugOutput<S: Database> {
+    string: String,
+    output: <S as HasArguments<'static>>::Arguments,
 }
 
-impl<S: Database> Clone for Box<dyn Value<S>> {
-    fn clone(&self) -> Self {
-        self.clone_to_box()
-    }
-}
-
-impl<'q, S: Database> Query<S> for DebugQuery {
-    type SqlPart = String;
-    type Context1 = (usize, Vec<Box<dyn Value<S>>>);
-    type Context2 = ();
-    fn build_sql_part_back(
-        _: &mut Self::Context2,
-        from: Self::SqlPart,
-    ) -> String {
-        from
-    }
-    type Output = <S as HasArguments<'static>>::Arguments;
-    fn build_query(
-        ctx1: Self::Context1,
-        f: impl FnOnce(&mut Self::Context2) -> String,
-    ) -> (String, Self::Output) {
-        let mut args = Default::default();
-        for value in ctx1.1 {
-            value.encode(&mut args);
-        }
-        (f(&mut ()), args)
-    }
-}
-
-pub trait DebugQueryMethods<S> {
-    fn buffer_display_as(&self) -> Vec<String>;
-    fn build_statement(&self) -> String
-    where
-        Self: Clone;
-}
-
-impl<S, T> DebugQueryMethods<S> for T
-where
-    S: Database,
-    T: Statement<S, DebugQuery> + Clone,
+impl<S: Database> ExecuteNoCache<'static, S, ()>
+    for DebugOutput<S>
 {
-    fn buffer_display_as(&self) -> Vec<String> {
-        let mut str = Vec::default();
-        for value in self.deref_ctx().1.iter() {
-            str.push(value.debug());
-        }
-        str
-    }
-    fn build_statement(&self) -> String {
-        let cloned = self.clone();
-        cloned._build().0
+    fn build(
+        self,
+    ) -> (String, <S as HasArguments<'static>>::Arguments) {
+        (self.string, self.output)
     }
 }
 
-impl<A, A2, S> Accept<A, S> for DebugQuery
+impl<S: Database> DebugOutput<S> {
+    pub fn as_str(&self) -> &str {
+        self.string.as_str()
+    }
+    pub fn clone_buffer(&self) -> Vec<Box<dyn Any>> {
+        todo!()
+    }
+}
+
+pub trait DebugQueries<Q: Query<S>, S: Database> {
+    fn debug(self, infer_db: PhantomData<S>) -> DebugOutput<S>;
+}
+
+impl<S, T> DebugQueries<PositionalStaticBuffer, S> for T
 where
+    T: Statement<S, PositionalStaticBuffer>,
     S: Database,
-    Self:
-        Query<S, Context1 = (usize, Vec<Box<dyn fmt::Display>>)>,
-    for<'e> A2: Encode<'e, S>
-        + Type<S>
-        + Send
-        + fmt::Display
-        + 'static
-        + Clone,
-    A: FnOnce() -> A2 + 'static,
 {
-    fn accept(
-        this: A,
-        ctx1: &mut Self::Context1,
-    ) -> impl FnOnce(&mut Self::Context2) -> String + 'static
-    {
-        ctx1.1.push(Box::new(this()));
-        ctx1.0 += 1;
-        let len = ctx1.0;
-        move |_| format!("${}", len)
+    fn debug(self, _infer_db: PhantomData<S>) -> DebugOutput<S> {
+        let built = self._build();
+        DebugOutput {
+            string: built.0,
+            output: built.1,
+        }
     }
 }

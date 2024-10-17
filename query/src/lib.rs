@@ -1,18 +1,19 @@
-#[cfg(test)]
-pub mod concept_positional_buffer;
+#![allow(unused)]
 #[cfg(todo)]
 pub mod concept_prepared_statement;
 pub mod create_table_st;
 #[cfg(test)]
 pub mod debug_query;
-pub mod debug_sql;
 pub mod delete_st;
 pub mod executable;
 pub mod execute_no_cache;
 pub mod expressions;
 pub mod insert_many_st;
 pub mod insert_one_st;
+pub mod named_buffer;
+pub mod positional_buffer;
 pub mod quick_query;
+pub mod quick_query_v2;
 pub mod returning;
 pub mod sanitize;
 pub mod select_st;
@@ -69,18 +70,60 @@ pub mod from_row {
     }
 }
 
+use sql_part_::inner::{
+    AcceptToSqlPart, ToSqlPart, WhereItemToSqlPart,
+};
 use sqlx::{database::HasArguments, Database, Postgres, Sqlite};
+
+pub trait TakeParts<'q, S>: Query<S> {
+    fn handle_where_item<T>(
+        t: T,
+        ctx: &mut Self::Context1,
+    ) -> Self::SqlPart
+    where
+        T: WhereItem<S, Self> + 'q;
+    fn handle_accept<T>(
+        t: T,
+        ctx: &mut Self::Context1,
+    ) -> Self::SqlPart
+    where
+        Self: Accept<T, S>;
+    fn handle_constraint<T>(
+        t: T,
+        ctx: &mut Self::Context1,
+    ) -> Self::SqlPart
+    where
+        T: Constraint<S, Self> + 'q;
+    fn handle_column<T>(
+        t: T,
+        ctx: &mut Self::Context1,
+    ) -> Self::SqlPart
+    where
+        T: SchemaColumn<S, Self> + 'q;
+}
 
 pub trait Query<S>: Sized {
     type SqlPart;
     type Context1: Default;
     type Context2: Default;
     #[deprecated = "in favor of ToSqlPart"]
-    fn handle_where_item(
-        _: impl WhereItem<S, Self> + 'static,
-        _: &mut Self::Context1,
-    ) -> Self::SqlPart {
-        panic!("depricate in favor of ToSqlPart")
+    fn handle_where_item<T>(
+        t: T,
+        ctx: &mut Self::Context1,
+    ) -> Self::SqlPart
+    where
+        T: WhereItem<S, Self> + 'static,
+    {
+        todo!()
+    }
+    fn handle_accept<T>(
+        t: T,
+        ctx: &mut Self::Context1,
+    ) -> Self::SqlPart
+    where
+        AcceptToSqlPart<T>: ToSqlPart<Self, S>,
+    {
+        AcceptToSqlPart(t).to_sql_part(ctx)
     }
 
     fn build_sql_part_back(
@@ -102,28 +145,16 @@ pub use sql_part_::inner as sql_part;
 
 mod sql_part_ {
     pub mod inner {
-        use std::marker::PhantomData;
-
-        use sqlx::Database;
-
         /// a given type can implement both WhereItem and Accept
         /// in order for rust to convert to SqlPart, it has to know
         /// which impl to target, here there are few new-type structs
         /// for each trait
-        use crate::{
-            Accept, Constraint, Query, SchemaColumn, WhereItem,
-        };
+        use crate::Query;
 
         pub struct WhereItemToSqlPart<T>(pub T);
         pub struct AcceptToSqlPart<T>(pub T);
-        pub struct ConstraintToSqlPart<T, Q>(
-            pub T,
-            pub PhantomData<Q>,
-        );
-        pub struct ColumnToSqlPart<T, Q>(
-            pub T,
-            pub PhantomData<Q>,
-        );
+        pub struct ConstraintToSqlPart<T>(pub T);
+        pub struct ColumnToSqlPart<T>(pub T);
 
         /// a given type can implement both WhereItem and Accept
         /// in order for rust to convert to SqlPart, it has to know
@@ -136,74 +167,6 @@ mod sql_part_ {
                 self,
                 ctx: &mut Q::Context1,
             ) -> Q::SqlPart;
-        }
-
-        impl<Q, S, T> ToSqlPart<Q, S> for WhereItemToSqlPart<T>
-        where
-            S: Database,
-            T: WhereItem<S, Q>,
-            Q: Query<S, SqlPart = String, Context2 = ()>,
-        {
-            fn to_sql_part(
-                self,
-                ctx: &mut <Q as Query<S>>::Context1,
-            ) -> <Q as Query<S>>::SqlPart
-            where
-                Q: Query<S>,
-            {
-                let item = self.0.where_item(ctx);
-                item(&mut ())
-            }
-        }
-
-        impl<'q, Q, S, T> ToSqlPart<Q, S> for ConstraintToSqlPart<T, Q>
-        where
-            S: Database,
-            T: Constraint<S, Q>,
-            Q: Query<S, SqlPart = String, Context2 = ()>,
-        {
-            fn to_sql_part(
-                self,
-                ctx: &mut <Q as Query<S>>::Context1,
-            ) -> <Q as Query<S>>::SqlPart
-            where
-                Q: Query<S>,
-            {
-                self.0.constraint(ctx)(&mut ())
-            }
-        }
-
-        impl<'q, Q, S, T> ToSqlPart<Q, S>
-            for crate::sql_part::ColumnToSqlPart<T, Q>
-        where
-            S: Database,
-            T: SchemaColumn<S, Q>,
-            Q: Query<S, SqlPart = String, Context2 = ()>,
-        {
-            fn to_sql_part(
-                self,
-                ctx: &mut <Q as Query<S>>::Context1,
-            ) -> <Q as Query<S>>::SqlPart
-            where
-                Q: Query<S>,
-            {
-                self.0.column(ctx)(&mut ())
-            }
-        }
-        impl<Q, S, T> ToSqlPart<Q, S> for AcceptToSqlPart<T>
-        where
-            Q: Accept<T, S>,
-            Q: Query<S, SqlPart = String, Context2 = ()>,
-        {
-            fn to_sql_part(
-                self,
-                ctx: &mut <Q as Query<S>>::Context1,
-            ) -> <Q as Query<S>>::SqlPart
-            where
-                Q: Query<S>,
-            {
-                <Q as Accept<T, S>>::accept(self.0, ctx)(&mut ())
-            }
         }
     }
 }

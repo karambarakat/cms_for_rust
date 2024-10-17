@@ -6,7 +6,9 @@ use crate::execute_no_cache::ExecuteNoCacheUsingSelectTrait;
 use crate::sql_part::{
     AcceptToSqlPart, ToSqlPart, WhereItemToSqlPart,
 };
-use crate::{Accept, InitStatement, Query, Statement};
+use crate::{
+    Accept, InitStatement, Query, Statement, TakeParts,
+};
 use crate::{SelectItem, WhereItem};
 
 pub struct SelectSt<S, Q: Query<S>> {

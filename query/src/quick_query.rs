@@ -1,60 +1,126 @@
-use std::marker::PhantomData;
+pub use v1::QuickQuery;
 
-use sqlx::{
-    database::HasArguments, prelude::Type, Database, Encode,
-};
+pub mod v1 {
+    use std::marker::PhantomData;
 
-use crate::{Accept, Query, SupportNamedBind, WhereItem};
+    use sqlx::{database::HasArguments, Database, Encode, Type};
 
-pub struct QuickQuery<'q>(PhantomData<&'q ()>);
+    use crate::{
+        sql_part::{
+            AcceptToSqlPart, ColumnToSqlPart,
+            ConstraintToSqlPart, ToSqlPart, WhereItemToSqlPart,
+        },
+        Accept, Constraint, Query, SchemaColumn,
+        SupportNamedBind, WhereItem,
+    };
 
-impl<'q, S: Database + SupportNamedBind> Query<S>
-    for QuickQuery<'q>
-{
-    type SqlPart = String;
-    type Context1 = (usize, <S as HasArguments<'q>>::Arguments);
-    type Context2 = ();
-    fn build_sql_part_back(
-        _: &mut Self::Context2,
-        from: Self::SqlPart,
-    ) -> String {
-        from
-    }
-    fn handle_where_item(
-        item: impl WhereItem<S, Self> + 'static,
-        ctx: &mut Self::Context1,
-    ) -> Self::SqlPart {
-        let item = item.where_item(ctx);
-        item(&mut ())
-    }
-    type Output = <S as HasArguments<'q>>::Arguments;
-    fn build_query(
-        ctx1: Self::Context1,
-        f: impl FnOnce(&mut Self::Context2) -> String,
-    ) -> (String, Self::Output) {
-        (f(&mut ()), ctx1.1)
-    }
-}
+    pub struct QuickQuery<'q>(PhantomData<&'q ()>);
 
-impl<'q, A, A2, S> Accept<A, S> for QuickQuery<'q>
-where
-    S: Database,
-    Self: Query<
-        S,
-        Context1 = (usize, <S as HasArguments<'q>>::Arguments),
-    >,
-    for<'e> A2: Encode<'e, S> + Type<S> + Send + 'q,
-    A: FnOnce() -> A2 + 'static,
-{
-    fn accept(
-        this: A,
-        ctx1: &mut Self::Context1,
-    ) -> impl FnOnce(&mut Self::Context2) -> String + 'static
+    impl<'q, S: Database + SupportNamedBind> Query<S>
+        for QuickQuery<'q>
     {
-        use sqlx::Arguments;
-        ctx1.1.add(this());
-        ctx1.0 += 1;
-        let len = ctx1.0;
-        move |_| format!("${}", len)
+        type SqlPart = String;
+        type Context1 =
+            (usize, <S as HasArguments<'q>>::Arguments);
+        type Context2 = ();
+        fn build_sql_part_back(
+            _: &mut Self::Context2,
+            from: Self::SqlPart,
+        ) -> String {
+            from
+        }
+        type Output = <S as HasArguments<'q>>::Arguments;
+        fn build_query(
+            ctx1: Self::Context1,
+            f: impl FnOnce(&mut Self::Context2) -> String,
+        ) -> (String, Self::Output) {
+            (f(&mut ()), ctx1.1)
+        }
+    }
+
+    impl<'q, S, T> ToSqlPart<QuickQuery<'q>, S>
+        for WhereItemToSqlPart<T>
+    where
+        S: Database + SupportNamedBind,
+        T: WhereItem<S, QuickQuery<'q>>,
+        QuickQuery<'q>:
+            Query<S, SqlPart = String, Context2 = ()>,
+    {
+        fn to_sql_part(
+            self,
+            ctx: &mut <QuickQuery<'q> as Query<S>>::Context1,
+        ) -> <QuickQuery<'q> as Query<S>>::SqlPart {
+            self.0.where_item(ctx)(&mut ())
+        }
+    }
+
+    impl<'q, S, T> ToSqlPart<QuickQuery<'q>, S>
+        for AcceptToSqlPart<T>
+    where
+        S: Database + SupportNamedBind,
+        QuickQuery<'q>: Accept<T, S>,
+        QuickQuery<'q>:
+            Query<S, SqlPart = String, Context2 = ()>,
+    {
+        fn to_sql_part(
+            self,
+            ctx: &mut <QuickQuery<'q> as Query<S>>::Context1,
+        ) -> <QuickQuery<'q> as Query<S>>::SqlPart {
+            <QuickQuery<'q> as Accept<T, S>>::accept(self.0, ctx)(
+                &mut (),
+            )
+        }
+    }
+
+    impl<'q, S, ToBeAccepted, T> Accept<ToBeAccepted, S>
+        for QuickQuery<'q>
+    where
+        S: Database + SupportNamedBind,
+        ToBeAccepted: FnOnce() -> T,
+        T: for<'e> Encode<'e, S> + Type<S> + Send + 'q,
+    {
+        fn accept(
+            this: ToBeAccepted,
+            ctx1: &mut <Self as Query<S>>::Context1,
+        ) -> impl FnOnce(&mut Self::Context2) -> String + 'static + Send
+        {
+            use sqlx::Arguments;
+            ctx1.1.add(this());
+            ctx1.0 += 1;
+            let len = ctx1.0;
+            move |_| format!("${}", len)
+        }
+    }
+
+    impl<'q, S, T> ToSqlPart<QuickQuery<'q>, S>
+        for ConstraintToSqlPart<T>
+    where
+        S: Database + SupportNamedBind,
+        T: Constraint<S, QuickQuery<'q>>,
+        QuickQuery<'q>:
+            Query<S, SqlPart = String, Context2 = ()>,
+    {
+        fn to_sql_part(
+            self,
+            ctx: &mut <QuickQuery<'q> as Query<S>>::Context1,
+        ) -> <QuickQuery<'q> as Query<S>>::SqlPart {
+            self.0.constraint(ctx)(&mut ())
+        }
+    }
+
+    impl<'q, S, T> ToSqlPart<QuickQuery<'q>, S>
+        for ColumnToSqlPart<T>
+    where
+        S: Database + SupportNamedBind,
+        T: SchemaColumn<S, QuickQuery<'q>>,
+        QuickQuery<'q>:
+            Query<S, SqlPart = String, Context2 = ()>,
+    {
+        fn to_sql_part(
+            self,
+            ctx: &mut <QuickQuery<'q> as Query<S>>::Context1,
+        ) -> <QuickQuery<'q> as Query<S>>::SqlPart {
+            self.0.column(ctx)(&mut ())
+        }
     }
 }

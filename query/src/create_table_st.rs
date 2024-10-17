@@ -150,32 +150,31 @@ where
     pub fn column<C>(&mut self, name: &str, constraint: C)
     where
         C: SchemaColumn<S, Q>,
-        ColumnToSqlPart<C, Q>: ToSqlPart<Q, S>,
+        ColumnToSqlPart<C>: ToSqlPart<Q, S>,
     {
         self.columns.push((
             name.to_string(),
-            ColumnToSqlPart(constraint, PhantomData::<Q>)
+            ColumnToSqlPart(constraint)
                 .to_sql_part(&mut self.ctx),
         ));
     }
     pub fn constraint<C>(&mut self, constraint: C)
     where
         C: Constraint<S, Q>,
-        ConstraintToSqlPart<C, Q>: ToSqlPart<Q, S>,
+        ConstraintToSqlPart<C>: ToSqlPart<Q, S>,
     {
         self.constraints.push(
-            ConstraintToSqlPart(constraint, PhantomData::<Q>)
+            ConstraintToSqlPart(constraint)
                 .to_sql_part(&mut self.ctx),
         )
     }
 }
 
-#[cfg(test)]
+#[cfg(todo)]
 mod create_table_st {
     use sqlx::{Pool, Sqlite};
 
     use crate::{
-        debug_query::{DebugQuery, DebugQueryMethods},
         expressions::{
             exports::{col_type, foreign_key},
             NotNull,

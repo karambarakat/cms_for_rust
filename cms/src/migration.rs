@@ -20,7 +20,6 @@ use queries_for_sqlx::{
 use sqlx::{Database, Executor, Pool};
 
 pub mod migrations_impl {
-    use std::ops::Not;
 
     use crate::{
         queries_for_sqlx_extention::SqlxQuery,
@@ -84,15 +83,19 @@ pub mod migrations_impl {
             ctx: &mut Context<TableContext<S>>,
         ) -> Result<(), &'static str> {
             let name = self.conj_table;
-            if ctx.has_event_occured(name).not() {
-                let new = stmt::CreateTableSt::init((
-                    CreateTableHeader::IfNotExists,
-                    name,
-                ));
+            let new = stmt::CreateTableSt::init((
+                CreateTableHeader::IfNotExists,
+                name,
+            ));
 
-                ctx.map.insert(name.to_string(), new);
-                ctx.event(name);
-            }
+            match ctx.map.insert(name.to_string(), new) {
+                None => {}
+                Some(_) => {
+                    panic!("should not contain old table")
+                }
+            };
+
+            ctx.event(name);
 
             let table = ctx.map.get_mut(name).unwrap();
 
@@ -140,15 +143,7 @@ pub mod migrations_impl {
             ctx: &mut Context<TableContext<S>>,
         ) -> Result<(), &'static str> {
             let name = O::table_name();
-            if ctx.has_event_occured(name).not() {
-                let new = stmt::CreateTableSt::init((
-                    CreateTableHeader::IfNotExists,
-                    name,
-                ));
-
-                ctx.map.insert(name.to_string(), new);
-                ctx.event(name);
-            }
+            ctx.wait_for_event(name)?;
 
             let table = ctx.map.get_mut(name).unwrap();
 
@@ -184,10 +179,8 @@ where
     DB: Database,
     for<'q> QuickQuery<'q>: Query<DB>,
 {
-    pub(crate) map: HashMap<
-        String,
-        CreateTableSt<DB, QuickQuery<'static>>,
-    >,
+    pub(crate) map:
+        HashMap<String, CreateTableSt<DB, QuickQuery<'static>>>,
 }
 
 impl<S: Database + SupportNamedBind> EventType
