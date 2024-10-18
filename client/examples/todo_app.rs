@@ -42,6 +42,7 @@ pub mod testing_prelude {
     };
     use futures::Future;
     pub use http_body_util::BodyExt;
+    use sqlx::{Pool, Sqlite};
     pub use std::ops::Deref;
     use std::{error::Error, mem::swap};
     pub use tower::ServiceExt;
@@ -183,25 +184,8 @@ pub mod testing_prelude {
             )
         }
     }
-}
 
-#[cfg(test)]
-mod test {
-    use std::{mem::swap, ops::Not};
-
-    use crate::testing_prelude::*;
-    use axum::{response::Response, routing::get, Router};
-    use better_testing::{axum::invoking, expect, ToBe};
-    use cms_for_rust::{
-        axum_router::AxumRouter, migration::migrate,
-    };
-    use queries_for_sqlx::prelude::stmt;
-    use serde_json::json;
-    use sqlx::{Database, FromRow, Pool, Sqlite};
-
-    use crate::*;
-
-    async fn dumpy_data(pool: Pool<Sqlite>) {
+    pub async fn dumpy_data(pool: Pool<Sqlite>) {
         sqlx::query(
             "INSERT INTO Category (title) VALUES
     ('cat_1'), ('cat_2'), ('cat_3')",
@@ -237,6 +221,23 @@ mod test {
         .await
         .unwrap();
     }
+}
+
+#[cfg(test)]
+mod test {
+    use std::{mem::swap, ops::Not};
+
+    use crate::testing_prelude::*;
+    use axum::{response::Response, routing::get, Router};
+    use better_testing::{axum::invoking, expect, ToBe};
+    use cms_for_rust::{
+        axum_router::AxumRouter, migration::migrate,
+    };
+    use queries_for_sqlx::prelude::stmt;
+    use serde_json::json;
+    use sqlx::{Database, FromRow, Pool, Sqlite};
+
+    use crate::*;
 
     #[tokio::test]
     async fn test_multi() {
@@ -468,6 +469,7 @@ mod test {
             }
         ));
     }
+
     async fn test_update_one(app: Router) {
         let mut res = app
             .oneshot(
