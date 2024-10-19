@@ -91,6 +91,7 @@ pub fn sqlite_row(
 }
 
 mod dyn_row {
+    use std::any::Any;
     use std::marker::PhantomData;
 
     use serde_json::Value;
@@ -102,16 +103,30 @@ mod dyn_row {
 
     pub trait DynRow {
         fn db_name(&self) -> &str;
-        fn get(&self, name: &str, ty: &dyn DynType) -> Value;
+        fn get(&self, name: &str, ty: &dyn DynDecode) -> Value;
     }
 
-    pub trait DynType {}
+    pub trait DynDecode {
+        fn decode(
+            &self,
+            row: &dyn DynRow,
+            name: &str,
+        ) -> Box<dyn Any>;
+    }
 
-    impl<S, T> DynType for PhantomData<(S, T)>
+    impl<S, T> DynDecode for PhantomData<(S, T)>
     where
         S: Database,
-        T: Type<S> + for<'d> Decode<'d, S>,
+        T: Type<S> + for<'d> Decode<'d, S> + 'static,
+        for<'s> &'s str: ColumnIndex<T>,
     {
+        fn decode(
+            &self,
+            row: &dyn DynRow,
+            name: &str,
+        ) -> Box<dyn Any> {
+            todo!()
+        }
     }
 
     impl<T> DynRow for T
@@ -123,7 +138,7 @@ mod dyn_row {
             T::Database::NAME
         }
 
-        fn get(&self, name: &str, ty: &dyn DynType) -> Value {
+        fn get(&self, name: &str, ty: &dyn DynDecode) -> Value {
             todo!()
         }
     }

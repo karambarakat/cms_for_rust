@@ -1,6 +1,7 @@
 pub use cms_macros;
 pub use cms_macros::schema;
 
+pub mod tuple_index;
 pub mod axum_router;
 pub mod entities;
 pub mod migration;
