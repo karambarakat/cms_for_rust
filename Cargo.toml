@@ -14,6 +14,8 @@ members = [
     "better_testing",
 
     "utils",
+
+    "admin/src-tauri",
 ]
 resolver = "2"
 
