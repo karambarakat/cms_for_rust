@@ -70,6 +70,9 @@ pub mod from_row {
     }
 }
 
+use std::marker::PhantomData;
+
+use quick_query::QuickQuery;
 use sql_part_::inner::{
     AcceptToSqlPart, ToSqlPart, WhereItemToSqlPart,
 };
@@ -171,10 +174,15 @@ mod sql_part_ {
     }
 }
 
-pub trait InitStatement {
+pub trait InitStatement<Q>: Sized {
     type Init;
     fn init(init: Self::Init) -> Self;
+    #[inline(always)]
+    fn init_infer(init: Self::Init, _: PhantomData<Q>) -> Self {
+        Self::init(init)
+    }
 }
+
 pub trait Statement<S, Q: Query<S>> {
     fn deref_ctx(&self) -> &Q::Context1;
     fn deref_mut_ctx(&mut self) -> &mut Q::Context1;

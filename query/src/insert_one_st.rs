@@ -18,7 +18,8 @@ pub struct InsertStOne<'q, S: Database, R = ()> {
     pub(crate) _pd: PhantomData<(S, &'q ())>,
 }
 
-impl<'q, S> InitStatement for InsertStOne<'_, S, ()>
+
+impl<'q, S> InitStatement<()> for InsertStOne<'_, S, ()>
 where
     S: Database,
 {

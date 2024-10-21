@@ -1,8 +1,19 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 
+use std::ops::Not;
+
 #[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
+fn greet() -> Result<String, ()> {
+    // print current directory
+    let mut cwd = std::env::current_dir().unwrap();
+
+    cwd.push("client");
+    cwd.push("examples");
+    cwd.push("admin");
+
+    Ok(format!(
+        "Hello, Current directory is: {:?}", cwd
+    ))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

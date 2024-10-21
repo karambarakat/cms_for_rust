@@ -27,7 +27,7 @@ mod test {
         row_to_json_cached::{self, sqlite_row},
     };
     use queries_for_sqlx::{
-        prelude::*, quick_query::QuickQuery, string_query,
+        prelude::*, quick_query::{InitQuickQuery, QuickQuery}, string_query,
         SupportNamedBind,
     };
     use serde_json::{json, Value};
@@ -39,7 +39,7 @@ mod test {
         E: Entity<S>,
         S: SupportNamedBind + Database,
     {
-        stmt::SelectSt::<S, QuickQuery>::init(E::table_name())
+        stmt::SelectSt::quick_query(E::table_name())
     }
 
     async fn hi(db: State<Pool<CMS_DB>>) -> Vec<Value> {

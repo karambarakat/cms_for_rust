@@ -1,4 +1,22 @@
+use crate::InitStatement;
+
 pub use v1::QuickQuery;
+
+
+pub trait InitQuickQuery<'q>: Sized {
+    type Init2;
+    fn quick_query(init: Self::Init2) -> Self;
+}
+
+impl<'q, T> InitQuickQuery<'q> for T
+where
+    T: InitStatement<QuickQuery<'q>>,
+{
+    type Init2 = T::Init;
+    fn quick_query(init: Self::Init2) -> Self {
+        T::init(init)
+    }
+}
 
 pub mod v1 {
     use std::marker::PhantomData;

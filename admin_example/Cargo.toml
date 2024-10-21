@@ -1,0 +1,8 @@
+[package]
+name = "admin_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+queries_for_sqlx = { path = "../query" }
+cms_for_rust = { path = "../cms" }

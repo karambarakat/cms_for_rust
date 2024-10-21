@@ -72,7 +72,7 @@ impl<S, Q: Query<S>> ExecuteNoCacheUsingSelectTrait
 {
 }
 
-impl<S, Q> InitStatement for CreateTableSt<S, Q>
+impl<S, Q> InitStatement<Q> for CreateTableSt<S, Q>
 where
     Q: Query<S>,
 {

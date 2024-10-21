@@ -22,7 +22,7 @@ impl<S, Q, R> ExecuteNoCacheUsingSelectTrait for DeleteSt<S, Q, R> where
 {
 }
 
-impl<S, Q> InitStatement for DeleteSt<S, Q, ()>
+impl<S, Q> InitStatement<Q> for DeleteSt<S, Q, ()>
 where
     Q: Query<S>,
 {

@@ -24,7 +24,7 @@ impl<S, Q: Query<S>, R> ExecuteNoCacheUsingSelectTrait
 {
 }
 
-impl<S, Q> InitStatement for UpdateSt<S, Q, ()>
+impl<S, Q> InitStatement<Q> for UpdateSt<S, Q, ()>
 where
     Q: Query<S>,
 {

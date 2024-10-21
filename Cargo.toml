@@ -16,6 +16,7 @@ members = [
     "utils",
 
     "admin/src-tauri",
+    "admin_example",
 ]
 resolver = "2"
 
