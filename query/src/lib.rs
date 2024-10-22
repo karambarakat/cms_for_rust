@@ -13,7 +13,7 @@ pub mod insert_one_st;
 pub mod named_buffer;
 pub mod positional_buffer;
 pub mod quick_query;
-pub mod quick_query_v2;
+pub(crate) mod quick_query_v2;
 pub mod returning;
 pub mod sanitize;
 pub mod select_st;

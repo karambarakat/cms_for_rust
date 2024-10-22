@@ -1,6 +1,6 @@
 [package]
 name = "queries_for_sqlx"
-version = "0.0.0"
+version = "0.0.1"
 edition = "2021"
 
 description = "composible sql query builder, with support of binding into query buffer"
@@ -39,5 +39,7 @@ default = []
 export_inner_executable = []
 waiting_specialization = []
 build_statments = []
+query_v2 = []
+
 
 

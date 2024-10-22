@@ -10,3 +10,9 @@ pub mod queries_for_sqlx_extention;
 pub mod relations;
 pub mod row_to_json_cached;
 pub mod utils;
+
+pub mod schema_prelude {
+    pub use crate::entities::define as entity;
+    pub use crate::relations::define as relations;
+    pub use crate::schema;
+}

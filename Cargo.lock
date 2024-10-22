@@ -29,6 +29,8 @@ version = "0.1.0"
 dependencies = [
  "cms_for_rust",
  "queries_for_sqlx",
+ "serde",
+ "sqlx",
 ]
 
 [[package]]

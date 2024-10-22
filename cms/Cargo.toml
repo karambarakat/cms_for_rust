@@ -1,6 +1,6 @@
 [package]
 name = "cms_for_rust"
-version = "0.0.0"
+version = "0.0.1"
 edition = "2021"
 
 description = "A simple CMS for Rust"
@@ -14,7 +14,7 @@ better_testing  = { path = "../better_testing", feature = ["full"] }
 async-trait = "0.1.78"
 cms_macros = { path = "./cms_macros", version = "0.0.0" }
 inventory = "0.3.15"
-queries_for_sqlx = {version = "0.0.0", path = "../query", features = ["export_inner_executable"]}
+queries_for_sqlx = {version = "0.0.1", path = "../query", features = ["export_inner_executable"]}
 sqlx = { version = "0.7.4", features = [
 "runtime-tokio",
     "uuid",

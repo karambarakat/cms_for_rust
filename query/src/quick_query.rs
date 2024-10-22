@@ -1,6 +1,9 @@
 use crate::InitStatement;
 
+#[cfg(not(feature = "query_v2"))]
 pub use v1::QuickQuery;
+#[cfg(feature = "query_v2")]
+pub use crate::quick_query_v2::QuickQuery;
 
 
 pub trait InitQuickQuery<'q>: Sized {
