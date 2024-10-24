@@ -44,6 +44,13 @@ impl SqlxQuery for sqlx::Sqlite {
     }
 }
 
+impl SqlxQuery for sqlx::Postgres {
+    type KeyType = i64;
+    fn default_primary_key() -> &'static str {
+        "PRIMARY KEY AUTOINCREMENT"
+    }
+}
+
 pub struct ColumnTypeCheckIfNull<T>(PhantomData<T>);
 
 impl<S, T, Q> SchemaColumn<S, Q> for ColumnTypeCheckIfNull<T>

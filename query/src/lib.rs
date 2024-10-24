@@ -341,3 +341,26 @@ mod impls {
     impl SupportReturning for Postgres {}
     impl SupportNamedBind for Postgres {}
 }
+
+pub mod connect_in_memory {
+    use futures_util::Future;
+    use sqlx::{Database, Pool, Sqlite};
+
+    pub trait ConnectInMemory: Send {
+        fn connect_in_memory(
+        ) -> impl Future<Output = Self> + Send;
+    }
+
+    impl ConnectInMemory for Pool<Sqlite> {
+        fn connect_in_memory(
+        ) -> impl Future<Output = Self> + Send {
+            async {
+                let pool =
+                    sqlx::Pool::connect("sqlite::memory:")
+                        .await
+                        .unwrap();
+                pool
+            }
+        }
+    }
+}

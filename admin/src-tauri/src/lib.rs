@@ -1,15 +1,10 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-
-use std::ops::Not;
-
 #[tauri::command]
 fn greet() -> Result<String, ()> {
     // print current directory
     let mut cwd = std::env::current_dir().unwrap();
 
-    cwd.push("client");
-    cwd.push("examples");
-    cwd.push("admin");
+    cwd.push("admin_example");
 
     Ok(format!(
         "Hello, Current directory is: {:?}", cwd

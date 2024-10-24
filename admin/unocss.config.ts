@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { defineConfig } from "unocss";
+import { defineConfig, definePreset } from "unocss";
 import transformerVariantGroup from "@unocss/transformer-variant-group";
 import presetMini from "@unocss/preset-mini";
 import { variantParentMatcher } from "@unocss/preset-mini/utils";
@@ -12,7 +12,6 @@ export default defineConfig({
     shortcuts: {
         base: "dark:bg-slate-8 dark:text-white",
         "base-invert": "dark:bg-white dark:text-black",
-        "main-grid": "grid grid-cols-1 md:grid-cols-2 gap-4",
         typo: "dark:text-white",
         "fill-as-text": "fill-black dark:fill-white",
         "stroke-as-text": "stroke-black dark:stroke-white",
@@ -33,10 +32,21 @@ export default defineConfig({
           fill-blue-500 hover:fill-blue-600 
           dark:fill-blue dark:hover:fill-blue-500 
     `,
-        container: "w-800px mx-auto px-50px md:px-100px max-w-screen",
-        "container-margins": "mx-25px md:mx-50px",
     },
     rules: [
+        // rule for user-select
+        [
+            /^select-(.+)$/,
+            ([, d]) => {
+                if (d !== "none" || d !== "text" || d !== "all") {
+                    throw new Error("Invalid value for user-select recieved: " + d);
+                }
+                return {
+                    "user-select": d,
+                }
+            },
+        ],
+
         ["animated-paused", { "animation-play-state": "paused" }],
         ["animated-running", { "animation-play-state": "running" }],
 
@@ -45,7 +55,6 @@ export default defineConfig({
         ["mix-blend-exclusion", { "mix-blend-mode": "exclusion" }],
         ["mix-blend-overlay", { "mix-blend-mode": "overlay" }],
         ["mix-blend-normal", { "mix-blend-mode": "normal" }],
-
         ["mix-blend-difference", { "mix-blend-mode": "difference" }],
         ["mix-blend-darken", { "mix-blend-mode": "darken" }],
         ["mix-blend-hue", { "mix-blend-mode": "hue" }],
@@ -96,9 +105,50 @@ export default defineConfig({
         transformerVariantGroup(),
     ],
     presets: [
+        css_keywords(),
         presetMini({
             dark: "media",
         }),
         animatedUno(),
     ],
 });
+
+type Option = {
+    disable: undefined | true,
+    start_with: undefined | string,
+}
+
+let css_keywords = definePreset((opt: Record<String, Option>) => {
+    let rules = [];
+
+    const specs = [
+        {
+            css_keyword = "mix-blend-mode",
+            opt_keyword = "mix_blend_mode",
+            default_shortcut = "mix-blend",
+            values: ["normal", "multiply", "screen", "overlay", "darken", "lighten", "color-dodge", "color-burn", "hard-light", "soft-light", "difference", "exclusion", "hue", "saturation", "color", "luminosity", "plus-darker", "plus-lighter",]
+        }
+    ];
+
+    for (spec in specs) {
+        if (!opt?.[spec.opt_keyword]?.disable) {
+            let start_with = opt?.[spec.opt_keyword]?.start_with;
+
+            if (start_with) {
+                for (item of arr) {
+                    rules.push([`${start_with}-${item}`, { [spec.css_keyword]: item }]);
+                }
+            }
+            else {
+                for (item of arr) {
+                    rules.push([`${spec.default_shortcut}-${item}`, { [spec.css_keyword]: item }]);
+                }
+            }
+        }
+    }
+
+    return {
+        name: "css-keywords",
+        rules
+    }
+})

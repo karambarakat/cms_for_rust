@@ -652,7 +652,7 @@ dependencies = [
 
 [[package]]
 name = "cms_for_rust"
-version = "0.0.0"
+version = "0.0.1"
 dependencies = [
  "async-trait",
  "axum",
@@ -3161,7 +3161,7 @@ dependencies = [
 
 [[package]]
 name = "queries_for_sqlx"
-version = "0.0.0"
+version = "0.0.1"
 dependencies = [
  "case",
  "either",
@@ -5086,6 +5086,16 @@ checksum = "09cc8ee72d2a9becf2f2febe0205bbed8fc6615b7cb429ad062dc7b7ddd036a9"
 [[package]]
 name = "utils"
 version = "0.0.0"
+dependencies = [
+ "axum",
+ "futures",
+ "http-body-util",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tower",
+ "tracing",
+]
 
 [[package]]
 name = "uuid"

@@ -4,3 +4,18 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
+axum = { optional = true, version = "0.7.4" }
+futures = { optional = true, version = "0.3.30" }
+http-b{ optional = true, version = ody-util = "0.1.1" }
+tower = { optional = true, version = "0.4.13" }
+tracing = { optional = true, version = "0.1.40" }
+serde = { optional = true, version = "1.0.197" }
+serde_json = { optional = true, version = "1.0.114" }
+sqlx = { optional= true, version = "0.7.4", features = [
+    "sqlite",
+    "postgres",
+    "macros",
+    "runtime-tokio",
+    "chrono",
+    "rust_decimal",
+] }
