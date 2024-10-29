@@ -104,12 +104,20 @@ where
             for (index, item) in
                 self.where_clause.into_iter().enumerate()
             {
+                let item = Q::build_sql_part_back(ctx, item);
+                if item.is_empty() {
+                    tracing::error!(
+                        "item should not be empty {}",
+                        item
+                    );
+                    continue;
+                }
                 if index == 0 {
                     str.push_str(" WHERE ");
                 } else {
                     str.push_str(" AND ");
                 }
-                let item = Q::build_sql_part_back(ctx, item);
+
                 str.push_str(&item);
             }
 

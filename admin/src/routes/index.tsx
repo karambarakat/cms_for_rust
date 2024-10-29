@@ -10,6 +10,7 @@ const list = [
 ];
 
 export default component$(() => {
+
     const state = useSignal("");
     useVisibleTask$(() => {
         invoke("greet", {}).then((response) => {
@@ -21,6 +22,7 @@ export default component$(() => {
         <div>
             <div class="min-h-50px" />
             <div class="px-7">
+                {state.value}
                 <h1 class="text-2xl pb-2"> Entity Builder </h1>
                 <div class="flex flex-col select-none">
                     {list.map((item) => (

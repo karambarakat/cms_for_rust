@@ -1,4 +1,4 @@
-mod entries;
+mod entities;
 
 fn main() {
 

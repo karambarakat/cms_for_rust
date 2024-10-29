@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 axum = { optional = true, version = "0.7.4" }
 futures = { optional = true, version = "0.3.30" }
-http-b{ optional = true, version = ody-util = "0.1.1" }
+http-body-util = { optional = true, version  = "0.1.1" }
 tower = { optional = true, version = "0.4.13" }
 tracing = { optional = true, version = "0.1.40" }
 serde = { optional = true, version = "1.0.197" }

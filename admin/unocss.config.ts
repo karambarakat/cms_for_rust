@@ -5,6 +5,47 @@ import presetMini from "@unocss/preset-mini";
 import { variantParentMatcher } from "@unocss/preset-mini/utils";
 import { animatedUno } from "animated-unocss";
 
+type Option = {
+    disable: undefined | true,
+    start_with: undefined | string,
+}
+
+const css_keywords = definePreset((opt: Record<String, Option>) => {
+    let rules = [];
+
+    const specs = [
+        {
+            css_keyword: "mix-blend-mode",
+            opt_keyword: "mix_blend_mode",
+            default_shortcut: "mix-blend",
+            values: ["normal", "multiply", "screen", "overlay", "darken", "lighten", "color-dodge", "color-burn", "hard-light", "soft-light", "difference", "exclusion", "hue", "saturation", "color", "luminosity", "plus-darker", "plus-lighter",]
+        }
+    ];
+
+    for (const spec in specs) {
+        if (!opt?.[spec.opt_keyword]?.disable) {
+            let start_with = opt?.[spec.opt_keyword]?.start_with;
+            let arr = spec.values;
+
+            if (start_with) {
+                for (const item in arr) {
+                    rules.push([`${start_with}-${item}`, { [spec.css_keyword]: item }]);
+                }
+            }
+            else {
+                for (const item in arr) {
+                    rules.push([`${spec.default_shortcut}-${item}`, { [spec.css_keyword]: item }]);
+                }
+            }
+        }
+    }
+
+    return {
+        name: "css-keywords",
+        rules
+    }
+})
+
 export default defineConfig({
     content: {
         filesystem: ["src/**/*.{ts,tsx}"],
@@ -113,42 +154,4 @@ export default defineConfig({
     ],
 });
 
-type Option = {
-    disable: undefined | true,
-    start_with: undefined | string,
-}
 
-let css_keywords = definePreset((opt: Record<String, Option>) => {
-    let rules = [];
-
-    const specs = [
-        {
-            css_keyword = "mix-blend-mode",
-            opt_keyword = "mix_blend_mode",
-            default_shortcut = "mix-blend",
-            values: ["normal", "multiply", "screen", "overlay", "darken", "lighten", "color-dodge", "color-burn", "hard-light", "soft-light", "difference", "exclusion", "hue", "saturation", "color", "luminosity", "plus-darker", "plus-lighter",]
-        }
-    ];
-
-    for (spec in specs) {
-        if (!opt?.[spec.opt_keyword]?.disable) {
-            let start_with = opt?.[spec.opt_keyword]?.start_with;
-
-            if (start_with) {
-                for (item of arr) {
-                    rules.push([`${start_with}-${item}`, { [spec.css_keyword]: item }]);
-                }
-            }
-            else {
-                for (item of arr) {
-                    rules.push([`${spec.default_shortcut}-${item}`, { [spec.css_keyword]: item }]);
-                }
-            }
-        }
-    }
-
-    return {
-        name: "css-keywords",
-        rules
-    }
-})

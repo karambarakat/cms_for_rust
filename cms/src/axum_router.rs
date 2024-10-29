@@ -3,7 +3,7 @@ use axum::response::IntoResponse;
 use axum::{Json, Router};
 use sqlx::{Decode, Encode, Type};
 
-use axum::routing::get;
+use axum::routing::post;
 use queries_for_sqlx::{
     IntoMutArguments, SupportNamedBind, SupportReturning,
 };
@@ -82,16 +82,11 @@ where
 {
     fn router() -> Router<Pool<S>> {
         let app = Router::new()
-            .route(
-                "/",
-                get(get_all::<S, T>).post(insert_one::<S, T>),
-            )
-            .route(
-                "/one",
-                get(get_one::<S, T>)
-                    .put(update_one::<S, T>)
-                    .delete(delete_one::<S, T>),
-            );
+            .route("/get_all", post(get_all::<S, T>))
+            .route("/insert_one", post(insert_one::<S, T>))
+            .route("/get_one", post(get_one::<S, T>))
+            .route("/update_one", post(update_one::<S, T>))
+            .route("/delete_one", post(delete_one::<S, T>));
 
         app
     }
