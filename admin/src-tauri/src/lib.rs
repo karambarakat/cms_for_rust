@@ -1,62 +1,87 @@
-use std::io::{BufReader, BufWriter, Read, Write};
-
 use proc_macro2::Span;
-use quote::ToTokens;
-use syn::{visit_mut::VisitMut, FieldMutability, File};
+use syn::FieldMutability;
 
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+macro_rules! handle_errors {
+    ($body:expr) => {{
+        use std::panic::{catch_unwind, set_hook};
+        use std::io::{Write};
+        use syn::{visit_mut::VisitMut, File};
+        use quote::ToTokens;
+
+        set_hook(Box::new(|pi| {
+            let any = pi.payload();
+            let mut str = None;
+            if let Some(s) = any.downcast_ref::<String>() {
+                str = Some(s.clone())
+            } else if let Some(s) = any.downcast_ref::<&str>() {
+                str = Some(s.to_string())
+            };
+            eprintln!(
+                "error\n{}{}",
+                str.unwrap_or_default(),
+                pi.location()
+                    .map(|loc| {
+                        format!(
+                            "\npanic occurred in file '{}' at line {}",
+                            loc.file(),
+                            loc.line()
+                        )
+                    })
+                    .unwrap_or_default()
+            );
+        }));
+
+        catch_unwind(|| $body).map_err(|_| ())
+    }};
+}
+
 #[tauri::command]
 fn greet() -> Result<String, ()> {
-    // print current directory
-    let mut cwd = std::env::current_dir().unwrap();
+    handle_errors!({
+        let mut cwd = std::env::current_dir().unwrap();
+        cwd.pop();
+        cwd.pop();
+        cwd.push("admin_example");
+        cwd.push("src");
+        cwd.push("entities.rs");
+        let contents =
+            std::fs::read_to_string(cwd.clone()).unwrap();
+        //     //(cwd.clone()).unwrap();
+        // let mut contents = String::new();
+        // file.read_to_string(&mut contents).unwrap();
+        let mut parsed =
+            syn::parse_str::<File>(&contents).unwrap();
+        struct Greet;
 
-    cwd.push("admin_example");
-    cwd.push("entities.rs");
-
-    // read file
-    let file = std::fs::File::open(cwd.clone()).unwrap();
-
-    let mut read = BufReader::new(file.try_clone().unwrap());
-    let mut contents = String::new();
-    read.read_to_string(&mut contents).unwrap();
-    let contents = contents.to_token_stream();
-
-    let mut parsed =
-        syn::parse::<File>(contents.into()).unwrap();
-
-    struct Greet;
-    impl VisitMut for Greet {
-        fn visit_fields_named_mut(
-            &mut self,
-            i: &mut syn::FieldsNamed,
-        ) {
-            i.named.push(syn::Field {
-                attrs: Vec::new(),
-                vis: syn::Visibility::Inherited,
-                mutability: FieldMutability::None,
-                ident: Some(syn::Ident::new(
-                    "new_field",
-                    Span::call_site(),
-                )),
-                colon_token: Some(Default::default()),
-                ty: syn::parse_quote!(String),
-            });
+        impl VisitMut for Greet {
+            fn visit_fields_named_mut(
+                &mut self,
+                i: &mut syn::FieldsNamed,
+            ) {
+                i.named.push(syn::Field {
+                    attrs: Vec::new(),
+                    vis: syn::Visibility::Inherited,
+                    mutability: FieldMutability::None,
+                    ident: Some(syn::Ident::new(
+                        "new_field",
+                        Span::call_site(),
+                    )),
+                    colon_token: Some(Default::default()),
+                    ty: syn::parse_quote!(String),
+                });
+            }
         }
-    }
+        Greet.visit_file_mut(&mut parsed);
+        let unpsarsed = prettyplease::unparse(&parsed);
 
-    let mut greet = Greet;
-    greet.visit_file_mut(&mut parsed);
+        std::fs::write(cwd.clone(), unpsarsed.as_bytes())
+            .unwrap();
 
-    let mut write = BufWriter::new(file);
-    write
-        .write_all(
-            parsed.to_token_stream().to_string().as_bytes(),
+        format!(
+            "Hello, Current directory is: {:?}\n{}",
+            cwd, unpsarsed
         )
-        .unwrap();
-
-    parsed.to_token_stream().to_string();
-
-    Ok(format!("Hello, Current directory is: {:?}", cwd))
+    })
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

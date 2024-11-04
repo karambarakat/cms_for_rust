@@ -1,5 +1,3 @@
 mod entities;
 
-fn main() {
-
-}
+fn main() {}
