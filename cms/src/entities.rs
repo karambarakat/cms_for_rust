@@ -14,9 +14,6 @@ use queries_for_sqlx::{
 use serde_json::Value;
 use sqlx::Database;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct EntityPhantom<E>(pub PhantomData<E>);
-
 pub trait PartialEntity<S> {
     fn update_st(self, st: &mut UpdateSt<S, QuickQuery<'_>>)
     where
@@ -117,6 +114,9 @@ where
     fn clone_self(&self) -> Box<dyn DynEntity<S>>;
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct EntityPhantom<E>(pub PhantomData<E>);
+
 impl<S, T> DynEntity<S> for EntityPhantom<T>
 where
     S: Database + SupportNamedBind + Sync + Send,
@@ -199,12 +199,12 @@ pub mod sqlx_extention {
 
 pub mod derive_prelude {
     pub use cms_macros::Entity;
+    pub use cms_macros::IntoMutArguments;
     pub use core::{
         clone::Clone,
         cmp::{Eq, PartialEq},
         fmt::Debug,
     };
-    pub use queries_for_sqlx::macros::IntoMutArguments;
     pub use serde::{Deserialize, Serialize};
     pub use sqlx::FromRow;
 }

@@ -1,22 +1,13 @@
 [workspace]
 members = [
-    "client",
-
     "query",
-    "query/query_macros",
-
     "cms",
-    "cms/cms_macros",
-
-    "tuples_op",
-    "tuples_op/tuples_op_macros",
-
-    "better_testing",
-
-    "utils",
-
-    "admin/src-tauri",
-    "admin_example",
+    "macros",
+    "process_manager",
 ]
-resolver = "2"
 
+exclude = [
+    "client",
+]
+
+resolver = "2"

@@ -4,52 +4,56 @@ use aliasing::HasLocal;
 use sqlx::Database;
 
 use crate::{
-    Accept, Constraint, Query, SchemaColumn, SelectItem,
-    WhereItem,
+    ident_safety::IdentSafety, Accept, Constraint, Query,
+    SchemaColumn, SelectItem, WhereItem,
 };
 
-pub struct Column {
-    pub(crate) name: &'static str,
+pub struct Column<I: IdentSafety> {
+    pub(crate) name: I::Column,
 }
 
-impl HasLocal for Column {
-    fn local_col(&self) -> &'static str {
-        self.name
+impl<I: IdentSafety> HasLocal<I> for Column<I> {
+    fn local_col(&self) -> &I::Column {
+        &self.name
     }
 }
 
-impl<S> SelectItem<S> for Column {
+impl<S, I: IdentSafety> SelectItem<S, I> for Column<I> {
     fn select_item(self) -> String {
-        self.name.to_string()
+        self.name.as_ref().to_string()
     }
 }
 
-pub struct ColumnEq<Col, T> {
+pub struct ColumnEq<Col, T, I> {
     pub(crate) column: Col,
     pub(crate) value: T,
+    pub(crate) _pd: PhantomData<I>,
 }
 
 // todo: do I have to give generic impl for every 'impl Select'
-impl ForeignColumn {
-    pub fn eq<T>(self, value: T) -> ColumnEq<Self, T> {
+impl<I: IdentSafety> ForeignColumn<I> {
+    pub fn eq<T>(self, value: T) -> ColumnEq<Self, T, I> {
         ColumnEq {
             column: self,
             value,
+            _pd: PhantomData,
         }
     }
 }
-impl Column {
-    pub fn eq<T>(self, value: T) -> ColumnEq<Self, T> {
+impl<I: IdentSafety> Column<I> {
+    pub fn eq<T>(self, value: T) -> ColumnEq<Self, T, I> {
         ColumnEq {
             column: self,
             value,
+            _pd: PhantomData,
         }
     }
 }
 
-impl<S, Col, Q: Query<S>, T> WhereItem<S, Q> for ColumnEq<Col, T>
+impl<S, Col, I: IdentSafety, Q: Query<S>, T> WhereItem<S, Q, I>
+    for ColumnEq<Col, T, I>
 where
-    Col: SelectItem<S>,
+    Col: SelectItem<S, I>,
     Q: Accept<T, S>,
 {
     fn where_item(
@@ -64,29 +68,33 @@ where
     }
 }
 
-pub struct ForeignTable {
-    pub(crate) name: &'static str,
+pub struct ForeignTable<I: IdentSafety> {
+    pub(crate) name: I::Table,
 }
 
-pub struct ForeignColumn {
-    pub(crate) table: &'static str,
-    pub(crate) column: &'static str,
+pub struct ForeignColumn<I: IdentSafety> {
+    pub(crate) table: I::Table,
+    pub(crate) column: I::Column,
 }
 
-impl HasLocal for ForeignColumn {
-    fn local_col(&self) -> &'static str {
-        self.column
+impl<I: IdentSafety> HasLocal<I> for ForeignColumn<I> {
+    fn local_col(&self) -> &I::Column {
+        &self.column
     }
 }
 
-impl<S> SelectItem<S> for ForeignColumn {
+impl<S, I: IdentSafety> SelectItem<S, I> for ForeignColumn<I> {
     fn select_item(self) -> String {
-        format!("{}.{}", self.table, self.column)
+        format!(
+            "{}.{}",
+            self.table.as_ref(),
+            self.column.as_ref()
+        )
     }
 }
 
-impl ForeignTable {
-    pub fn col(self, column: &'static str) -> ForeignColumn {
+impl<I: IdentSafety> ForeignTable<I> {
+    pub fn col(self, column: I::Column) -> ForeignColumn<I> {
         ForeignColumn {
             table: self.name,
             column,
@@ -98,7 +106,7 @@ pub mod aliasing {
 
     use case::CaseExt;
 
-    use crate::SelectItem;
+    use crate::{ident_safety::IdentSafety, SelectItem};
 
     pub struct Alias<E, S> {
         pub(crate) expr: E,
@@ -106,9 +114,9 @@ pub mod aliasing {
         _pd: std::marker::PhantomData<S>,
     }
 
-    impl<S, I> SelectItem<S> for Alias<I, S>
+    impl<S, E, I> SelectItem<S, I> for Alias<E, S>
     where
-        I: SelectItem<S>,
+        E: SelectItem<S, I>,
     {
         fn select_item(self) -> String {
             format!(
@@ -125,26 +133,32 @@ pub mod aliasing {
         _pd: std::marker::PhantomData<S>,
     }
 
-    impl<S, I> SelectItem<S> for PrefixAlias<I, S>
+    impl<S, E, I> SelectItem<S, I> for PrefixAlias<E, S>
     where
-        I: SelectItem<S> + HasLocal,
+        I: IdentSafety,
+        I::Column: Clone,
+        E: SelectItem<S, I> + HasLocal<I>,
     {
         fn select_item(self) -> String {
-            let local = self.expr.local_col();
+            let local = self.expr.local_col().clone();
             format!(
                 "{} AS {}_{}",
                 self.expr.select_item(),
                 self.prefix.to_snake(),
-                local
+                local.as_ref()
             )
         }
     }
 
-    pub trait HasLocal {
-        fn local_col(&self) -> &'static str;
+    pub trait HasLocal<I: IdentSafety> {
+        fn local_col(&self) -> &I::Column;
     }
 
-    pub trait SelectHelpers<S>: SelectItem<S> + Sized {
+    pub trait SelectHelpers<S, I>:
+        SelectItem<S, I> + Sized
+    where
+        I: IdentSafety,
+    {
         fn alias2(self, alias: String) -> Alias<Self, S>
         where
             Self: Sized,
@@ -161,7 +175,7 @@ pub mod aliasing {
         ) -> PrefixAlias<Self, S>
         where
             Self: Sized,
-            Self: HasLocal,
+            Self: HasLocal<I>,
         {
             PrefixAlias {
                 expr: self,
@@ -169,24 +183,27 @@ pub mod aliasing {
                 _pd: std::marker::PhantomData,
             }
         }
-        fn alias(self, alias: &'static str) -> Alias<Self, S>
+        fn alias(self, alias: String) -> Alias<Self, S>
         where
             Self: Sized,
         {
             Alias {
                 expr: self,
-                alias: alias.to_string(),
+                alias,
                 _pd: std::marker::PhantomData,
             }
         }
     }
 
-    impl<S, E> SelectHelpers<S> for E where E: SelectItem<S> {}
+    impl<S, E, I: IdentSafety> SelectHelpers<S, I> for E where
+        E: SelectItem<S, I>
+    {
+    }
 }
 
 pub struct IsNullWhereItem<T, S>(T, PhantomData<S>);
 
-impl<S, Q: Query<S>, T: SelectItem<S>> WhereItem<S, Q>
+impl<S, Q: Query<S>, I, T: SelectItem<S, I>> WhereItem<S, Q, I>
     for IsNullWhereItem<T, S>
 {
     fn where_item(
@@ -198,7 +215,7 @@ impl<S, Q: Query<S>, T: SelectItem<S>> WhereItem<S, Q>
 }
 pub struct IsNotNullWhereItem<T, S>(T, PhantomData<S>);
 
-impl<S, Q: Query<S>, T: SelectItem<S>> WhereItem<S, Q>
+impl<S, Q: Query<S>, I, T: SelectItem<S, I>> WhereItem<S, Q, I>
     for IsNotNullWhereItem<T, S>
 {
     fn where_item(
@@ -209,7 +226,9 @@ impl<S, Q: Query<S>, T: SelectItem<S>> WhereItem<S, Q>
     }
 }
 
-pub trait SelectHelpers2<S>: SelectItem<S> + Sized {
+pub trait SelectHelpers2<S, I>:
+    SelectItem<S, I> + Sized
+{
     fn is_not_null(self) -> IsNotNullWhereItem<Self, S> {
         IsNotNullWhereItem(self, PhantomData)
     }
@@ -218,17 +237,20 @@ pub trait SelectHelpers2<S>: SelectItem<S> + Sized {
     }
 }
 
-impl<S, E> SelectHelpers2<S> for E where E: SelectItem<S> {}
+impl<S, E, I> SelectHelpers2<S, I> for E where E: SelectItem<S, I>
+{}
 
 pub struct VerbatimNoSanitize(String);
 
-impl<S> SelectItem<S> for VerbatimNoSanitize {
+impl<S, I> SelectItem<S, I> for VerbatimNoSanitize {
     fn select_item(self) -> String {
         self.0
     }
 }
 
-impl<S, Q: Query<S>> WhereItem<S, Q> for VerbatimNoSanitize {
+impl<S, Q: Query<S>, I> WhereItem<S, Q, I>
+    for VerbatimNoSanitize
+{
     fn where_item(
         self,
         _ctx: &mut Q::Context1,
@@ -239,7 +261,7 @@ impl<S, Q: Query<S>> WhereItem<S, Q> for VerbatimNoSanitize {
 
 pub struct AllColumns;
 
-impl<S> SelectItem<S> for AllColumns {
+impl<S, I> SelectItem<S, I> for AllColumns {
     fn select_item(self) -> String {
         "*".to_string()
     }
@@ -381,17 +403,80 @@ where
     }
 }
 
+pub struct Or<T>(Vec<T>);
+
+impl<S, Q, I, T> WhereItem<S, Q, I> for Or<T>
+where
+    T: 'static,
+    S: 'static,
+    Q: 'static,
+    I: 'static,
+    Q::Context1: 'static,
+
+    Q: Query<S>,
+    T: WhereItem<S, Q, I>,
+{
+    fn where_item(
+        self,
+        ctx: &mut <Q as Query<S>>::Context1,
+    ) -> impl FnOnce(&mut <Q as Query<S>>::Context2) -> String
+    {
+        // let maps: Vec<
+        //     Box<dyn FnOnce(&mut <Q as Query<S>>::Context2) -> String>,
+        // > = self
+        //     .0
+        //     .into_iter()
+        //     .map(|e| {
+        //         return Box::new(e.where_item(ctx));
+        //     })
+        //     .collect();
+        let mut maps = vec![];
+        for each in self.0 {
+            // SAFETY: I think I the return of where_item is 'static
+            // or maybe I should make corrections to the trait
+            let res = each
+                .where_item(unsafe { &mut *(ctx as *mut _) });
+            // let res = each
+            //     .where_item(ctx);
+            let res: Box<
+                dyn FnOnce(
+                    &mut <Q as Query<S>>::Context2,
+                ) -> String,
+            > = Box::new(res);
+            maps.push(res);
+        }
+        |ctx| {
+            maps.into_iter()
+                .map(|e| e(ctx))
+                .collect::<Vec<_>>()
+                .join(" OR ")
+        }
+    }
+}
+
 pub mod exports {
     pub use super::aliasing::SelectHelpers;
     pub use super::SelectHelpers2;
 
     use super::*;
-
-    pub fn col(name: &'static str) -> Column {
-        Column { name }
+    pub fn or<T>(input: Vec<T>) -> Or<T> {
+        Or(input)
     }
 
-    pub fn ft(name: &'static str) -> ForeignTable {
+    pub fn col<
+        I: IdentSafety,
+        In: ToOwned<Owned = I::Column>,
+    >(
+        name: In,
+    ) -> Column<I> {
+        Column {
+            name: name.to_owned(),
+        }
+    }
+
+    pub fn ft<I: IdentSafety>(
+        name: I::Table,
+    ) -> ForeignTable<I> {
         ForeignTable { name }
     }
 

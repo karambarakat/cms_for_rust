@@ -2,6 +2,11 @@ pub trait ReturningClause {
     fn returning(self) -> String;
 }
 
+impl ReturningClause for Vec<String> {
+    fn returning(self) -> String {
+        format!(" RETURNING {};", self.join(", "))
+    }
+}
 impl ReturningClause for Vec<&'static str> {
     fn returning(self) -> String {
         format!(" RETURNING {};", self.join(", "))

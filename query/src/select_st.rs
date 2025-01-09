@@ -1,8 +1,9 @@
 use std::marker::PhantomData;
 
-use joins::{Join, JoinType};
+use joins::Join;
 
 use crate::execute_no_cache::ExecuteNoCacheUsingSelectTrait;
+use crate::ident_safety::{IdentSafety, PanicOnUnsafe};
 use crate::sql_part::{
     AcceptToSqlPart, ToSqlPart, WhereItemToSqlPart,
 };
@@ -11,29 +12,32 @@ use crate::{
 };
 use crate::{SelectItem, WhereItem};
 
-pub struct SelectSt<S, Q: Query<S>> {
+pub struct SelectSt<S, Q: Query<S>, I: IdentSafety> {
     pub(crate) select_list: Vec<String>,
     pub(crate) where_clause: Vec<Q::SqlPart>,
-    pub(crate) joins: Vec<Join<&'static str>>,
+    pub(crate) joins: Vec<Join<I>>,
     pub(crate) order_by: Vec<(&'static str, bool)>,
     pub(crate) limit: Option<Q::SqlPart>,
     pub(crate) shift: Option<Q::SqlPart>,
     pub(crate) ctx: Q::Context1,
-    pub(crate) from: &'static str,
-    pub(crate) _sqlx: PhantomData<S>,
+    pub(crate) from: I::Table,
+    pub(crate) _sqlx: PhantomData<(S, I)>,
 }
 
-impl<S, Q> ExecuteNoCacheUsingSelectTrait for SelectSt<S, Q> where
-    Q: Query<S>
+impl<S, Q, I> ExecuteNoCacheUsingSelectTrait
+    for SelectSt<S, Q, I>
+where
+    I: IdentSafety,
+    Q: Query<S>,
 {
 }
 
-impl<S, Q> InitStatement<Q> for SelectSt<S, Q>
+impl<S, Q> InitStatement<Q> for SelectSt<S, Q, PanicOnUnsafe>
 where
     Q: Query<S>,
 {
-    type Init = &'static str;
-    fn init(from: &'static str) -> SelectSt<S, Q> {
+    type Init = String;
+    fn init(from: String) -> Self {
         SelectSt {
             select_list: Default::default(),
             where_clause: Default::default(),
@@ -48,9 +52,10 @@ where
     }
 }
 
-impl<S, Q> Statement<S, Q> for SelectSt<S, Q>
+impl<S, Q, I> Statement<S, Q> for SelectSt<S, Q, I>
 where
     Q: Query<S>,
+    I: IdentSafety,
 {
     fn deref_ctx(&self) -> &Q::Context1 {
         &self.ctx
@@ -64,9 +69,10 @@ where
     }
 }
 
-impl<S, Q> SelectSt<S, Q>
+impl<S, Q, I> SelectSt<S, Q, I>
 where
     Q: Query<S>,
+    I: IdentSafety,
 {
     pub fn build(self) -> (String, Q::Output) {
         Q::build_query(self.ctx, |ctx| {
@@ -86,17 +92,17 @@ where
             }
 
             str.push_str(" FROM ");
-            str.push_str(&self.from);
+            str.push_str(self.from.as_ref());
 
             for join in self.joins.into_iter() {
                 let join = format!(
                     " {} {} ON {}.{} = {}.{}",
                     join.ty.to_string(),
-                    join.on_table,
-                    join.on_table,
-                    join.on_column,
-                    self.from,
-                    join.local_column,
+                    join.on_table.as_ref(),
+                    join.on_table.as_ref(),
+                    join.on_column.as_ref(),
+                    self.from.as_ref(),
+                    join.local_column.as_ref(),
                 );
                 str.push_str(&join);
             }
@@ -155,22 +161,23 @@ where
 
     pub fn select(
         &mut self,
-        item: impl SelectItem<S> + 'static,
+        item: impl SelectItem<S, I> + 'static,
     ) {
         self.select_list.push(item.select_item());
     }
 
-    pub fn join(&mut self, join: impl JoinType<S> + 'static) {
-        let join = join.join_ty();
+    pub fn join(&mut self, join: Join<I>) {
         if self
             .joins
             .iter()
-            .find(|e| e.on_table == join.on_table)
+            .find(|e| {
+                e.on_table.as_ref() == join.on_table.as_ref()
+            })
             .is_some()
         {
             panic!(
                 "table {} has been joined already",
-                join.on_table
+                join.on_table.as_ref()
             );
         }
 
@@ -213,7 +220,7 @@ where
 
     pub fn where_<T>(&mut self, item: T)
     where
-        T: WhereItem<S, Q> + 'static,
+        T: WhereItem<S, Q, I> + 'static,
         WhereItemToSqlPart<T>: ToSqlPart<Q, S>,
     {
         let item =
@@ -245,32 +252,13 @@ pub trait HandleAcceptIsWorking {
 }
 
 pub mod joins {
-    pub mod join_type {
-        use super::{Join, JoinType};
+    use crate::ident_safety::IdentSafety;
 
-        pub struct Left;
-
-        impl<S> JoinType<S> for Join<Left> {
-            fn join_ty(self) -> Join<&'static str> {
-                Join {
-                    ty: "LEFT JOIN",
-                    on_table: self.on_table,
-                    on_column: self.on_column,
-                    local_column: self.local_column,
-                }
-            }
-        }
-    }
-
-    pub trait JoinType<S> {
-        fn join_ty(self) -> Join<&'static str>;
-    }
-
-    pub struct Join<J> {
-        pub ty: J,
-        pub on_table: &'static str,
-        pub on_column: &'static str,
-        pub local_column: &'static str,
+    pub struct Join<I: IdentSafety> {
+        pub ty: &'static str,
+        pub on_table: I::Table,
+        pub on_column: I::Column,
+        pub local_column: I::Column,
     }
 }
 
@@ -280,5 +268,5 @@ pub mod order_by {
 }
 
 pub mod exports {
-    pub use super::joins::{Join, JoinType};
+    pub use super::joins::Join;
 }

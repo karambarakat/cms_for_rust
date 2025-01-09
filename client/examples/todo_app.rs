@@ -249,6 +249,7 @@ mod test {
         cms_for_rust::migration::migrate(pool.clone()).await;
         dumpy_data(pool.clone()).await;
 
+        // todo: remove this
         let app = axum::Router::new()
             .route("/", get(|| async { "Server is running" }))
             .nest("/todo", Todo::router())

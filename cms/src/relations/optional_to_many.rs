@@ -2,10 +2,17 @@ use std::{marker::PhantomData, mem::take, pin::Pin};
 
 use futures_util::Future;
 use queries_for_sqlx::{
-    execute_no_cache::ExecuteNoCache, insert_one_st::InsertStOne, prelude::{col, stmt}, quick_query::QuickQuery, select_st::{
+    execute_no_cache::ExecuteNoCache,
+    ident_safety::PanicOnUnsafe,
+    insert_one_st::InsertStOne,
+    prelude::{col, stmt},
+    quick_query::QuickQuery,
+    select_st::{
         joins::{join_type, Join},
         SelectSt,
-    }, update_st::UpdateSt, InitStatement, SupportNamedBind
+    },
+    update_st::UpdateSt,
+    InitStatement, SupportNamedBind,
 };
 use serde_json::{from_value, json, Value};
 use sqlx::{
@@ -15,8 +22,6 @@ use sqlx::{
 use tracing::warn;
 
 use crate::{entities::DynEntity, entities::EntityPhantom};
-
-use super::super::operations::Id;
 
 use super::{
     DynRelation, InsertInput, SubmitableRelation, UpdateInput,
@@ -172,11 +177,12 @@ where
         S: Database + SupportNamedBind,
     {
         Box::pin(async move {
-            let mut st =
-                stmt::SelectSt::init(self.related_entity.table_name());
+            let mut st = stmt::SelectSt::init(
+                self.related_entity.table_name(),
+            );
 
             let id = self.input;
-            st.where_(col("id").eq(move || id));
+            st.where_(col("id".to_string()).eq(move || id));
 
             self.related_entity.on_select(&mut st);
 
@@ -216,8 +222,10 @@ where
     {
         todo!()
     }
-    fn on_select(&self, st: &mut SelectSt<S, QuickQuery<'_>>)
-    where
+    fn on_select(
+        &self,
+        st: &mut SelectSt<S, QuickQuery<'_>, PanicOnUnsafe>,
+    ) where
         S: SupportNamedBind + Database,
     {
         todo!()
@@ -253,8 +261,9 @@ where
         S: Database + SupportNamedBind,
     {
         Box::pin(async move {
-            let mut st =
-                stmt::SelectSt::init(self.related_entity.table_name());
+            let mut st = stmt::SelectSt::init(
+                self.related_entity.table_name(),
+            );
 
             // limit here used to work for many-to-many
             // relations, where I add : where base_id = 1
@@ -265,7 +274,7 @@ where
             self.related_entity.on_select(&mut st);
 
             let id = self.input.id;
-            st.where_(col("id").eq(move || id));
+            st.where_(col("id".to_owned()).eq(move || id));
 
             let res = st
                 .fetch_one(&pool, |row| {
@@ -306,8 +315,10 @@ where
     {
         // no-op
     }
-    fn on_select(&self, st: &mut SelectSt<S, QuickQuery<'_>>)
-    where
+    fn on_select(
+        &self,
+        st: &mut SelectSt<S, QuickQuery, PanicOnUnsafe>,
+    ) where
         S: SupportNamedBind + Database,
     {
         // no-op
@@ -366,8 +377,10 @@ where
                 Some(json!({"id": id, "attributes": value}));
         }
     }
-    fn on_select(&self, st: &mut SelectSt<S, QuickQuery<'_>>)
-    where
+    fn on_select(
+        &self,
+        st: &mut SelectSt<S, QuickQuery, PanicOnUnsafe>,
+    ) where
         S: SupportNamedBind + Database,
     {
         st.join(Join {
@@ -377,7 +390,7 @@ where
             local_column: self.relation_key,
         });
 
-        st.select(col(self.relation_key));
+        st.select(col(self.relation_key.to_string()));
 
         self.related_entity.on_select_scoped(st);
     }

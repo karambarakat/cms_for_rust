@@ -10,10 +10,16 @@ use axum::{
 use case::CaseExt;
 use inventory::Collect;
 use queries_for_sqlx::{
-    execute_no_cache::ExecuteNoCache, impl_into_mut_arguments_prelude::Type, prelude::{
+    execute_no_cache::ExecuteNoCache,
+    impl_into_mut_arguments_prelude::Type,
+    prelude::{
         col, ft, stmt, verbatim__warning__does_not_sanitize,
         SelectHelpers,
-    }, quick_query::QuickQuery, select_st::SelectSt, InitStatement, IntoMutArguments, SupportNamedBind, SupportReturning
+    },
+    quick_query::QuickQuery,
+    select_st::SelectSt,
+    InitStatement, IntoMutArguments, SupportNamedBind,
+    SupportReturning,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -29,6 +35,24 @@ use crate::{
 };
 
 use super::Id;
+
+// struct SelectInput {
+//     entity: defer stage_1,
+//     query: { id: i64, rest: defer stage_query },
+//     rest: defer stage_2
+// }
+//
+// defer stage_1 = enum {
+//     Empty(()),
+//     MustBeKnown(String),
+// }
+//
+// defer stage_query = keep_as_map;
+//
+// defer stage_2 = enum {
+//     keep_as_map,
+//     defer new_stage
+// }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

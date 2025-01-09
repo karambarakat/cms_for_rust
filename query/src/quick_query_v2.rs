@@ -7,13 +7,10 @@ use sqlx::{
 };
 
 use crate::{
-    named_buffer::NamedBorrowedBuffer,
-    positional_buffer::PositionalStaticBuffer,
-    sql_part::{
+    ident_safety::PanicOnUnsafe, named_buffer::NamedBorrowedBuffer, positional_buffer::PositionalStaticBuffer, sql_part::{
         AcceptToSqlPart, ColumnToSqlPart, ConstraintToSqlPart,
         ToSqlPart, WhereItemToSqlPart,
-    },
-    Accept, Constraint, Query, SchemaColumn, WhereItem,
+    }, Accept, Constraint, Query, SchemaColumn, WhereItem
 };
 
 pub struct QuickQuery;
@@ -359,7 +356,7 @@ pub trait DatabaseSubset: Database {
         ctx: &mut <Self::Q as Query<Self>>::Context1,
     ) -> <Self::Q as Query<Self>>::SqlPart
     where
-        T: WhereItem<Self, Self::Q> + 'static,
+        T: WhereItem<Self, Self::Q, PanicOnUnsafe> + 'static,
         WhereItemToSqlPart<T>: ToSqlPart<Self::Q, Self>;
 
     fn handle_accept<T>(
@@ -418,7 +415,7 @@ impl<S, T> ToSqlPart<QuickQuery, S> for WhereItemToSqlPart<T>
 where
     S: sqlx::Database + DatabaseSubset,
     S::Q: Query<S>,
-    T: WhereItem<S, QuickQuery> + 'static,
+    T: WhereItem<S, QuickQuery, PanicOnUnsafe> + 'static,
     // WhereItemToSqlPart<T>: ToSqlPart<S::Q, S>,
     // T: WhereItem<S, S::Q>,
 {
@@ -456,7 +453,7 @@ impl DatabaseSubset for Sqlite {
         ctx: &mut <Self::Q as Query<Self>>::Context1,
     ) -> <Self::Q as Query<Self>>::SqlPart
     where
-        T: WhereItem<Self, Self::Q> + 'static,
+        T: WhereItem<Self, Self::Q, PanicOnUnsafe> + 'static,
         WhereItemToSqlPart<T>: ToSqlPart<Self::Q, Self>,
     {
         <WhereItemToSqlPart<T> as ToSqlPart<Self::Q, Self>>::to_sql_part(WhereItemToSqlPart(this), ctx)
@@ -495,7 +492,7 @@ impl DatabaseSubset for MySql {
         ctx: &mut <Self::Q as Query<Self>>::Context1,
     ) -> <Self::Q as Query<Self>>::SqlPart
     where
-        T: WhereItem<Self, Self::Q> + 'static,
+        T: WhereItem<Self, Self::Q, PanicOnUnsafe> + 'static,
     {
         <WhereItemToSqlPart<T> as ToSqlPart<Self::Q, Self>>::to_sql_part(WhereItemToSqlPart(this), ctx)
     }

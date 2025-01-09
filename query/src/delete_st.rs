@@ -4,6 +4,7 @@ use sqlx::Database;
 
 use crate::{
     execute_no_cache::ExecuteNoCacheUsingSelectTrait,
+    ident_safety::PanicOnUnsafe,
     returning::ReturningClause,
     sql_part::{ToSqlPart, WhereItemToSqlPart},
     InitStatement, Query, Statement, SupportNamedBind,
@@ -12,13 +13,15 @@ use crate::{
 pub struct DeleteSt<S, Q: Query<S>, R = ()> {
     pub(crate) where_clause: Vec<Q::SqlPart>,
     pub(crate) ctx: Q::Context1,
-    pub(crate) table: &'static str,
+    pub(crate) table: String,
     pub(crate) returning: R,
     pub(crate) _sqlx: PhantomData<S>,
 }
 
-impl<S, Q, R> ExecuteNoCacheUsingSelectTrait for DeleteSt<S, Q, R> where
-    Q: Query<S>
+impl<S, Q, R> ExecuteNoCacheUsingSelectTrait
+    for DeleteSt<S, Q, R>
+where
+    Q: Query<S>,
 {
 }
 
@@ -26,7 +29,7 @@ impl<S, Q> InitStatement<Q> for DeleteSt<S, Q, ()>
 where
     Q: Query<S>,
 {
-    type Init = &'static str;
+    type Init = String;
     fn init(init: Self::Init) -> Self {
         DeleteSt {
             where_clause: Vec::new(),
@@ -74,7 +77,7 @@ impl<S, Q: Query<S>> DeleteSt<S, Q> {
 impl<S, Q: Query<S>> DeleteSt<S, Q> {
     pub fn where_<W>(&mut self, item: W)
     where
-        W: crate::WhereItem<S, Q> + 'static,
+        W: crate::WhereItem<S, Q, PanicOnUnsafe> + 'static,
         WhereItemToSqlPart<W>: ToSqlPart<Q, S>,
     {
         let item =
@@ -94,7 +97,7 @@ where
         <Q as Query<S>>::build_query(self.ctx, |ctx| {
             let mut str = String::from("DELETE FROM ");
 
-            str.push_str(self.table);
+            str.push_str(&self.table);
 
             for (index, where_item) in
                 self.where_clause.into_iter().enumerate()

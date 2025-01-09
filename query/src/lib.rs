@@ -1,6 +1,6 @@
 #![allow(unused)]
-#[cfg(todo)]
-pub mod concept_prepared_statement;
+// #[cfg(todo)]
+// pub mod concept_prepared_statement;
 pub mod create_table_st;
 #[cfg(test)]
 pub mod debug_query;
@@ -8,6 +8,7 @@ pub mod delete_st;
 pub mod executable;
 pub mod execute_no_cache;
 pub mod expressions;
+pub mod ident_safety;
 pub mod insert_many_st;
 pub mod insert_one_st;
 pub mod named_buffer;
@@ -20,10 +21,6 @@ pub mod select_st;
 pub mod string_query;
 pub mod update_st;
 
-pub mod macros {
-    pub use query_macros::*;
-}
-
 pub mod prelude {
     pub use crate::execute_no_cache::ExecuteNoCache;
     pub use crate::InitStatement;
@@ -31,7 +28,6 @@ pub mod prelude {
     pub use crate::expressions::exports::*;
     pub use crate::expressions::SelectHelpers2;
     pub use crate::select_st::exports::*;
-    pub use crate::select_st::joins::join_type;
     pub use crate::select_st::order_by;
 
     pub fn sanitize<T>(t: T) -> crate::sanitize::Sanitize<T> {
@@ -84,7 +80,7 @@ pub trait TakeParts<'q, S>: Query<S> {
         ctx: &mut Self::Context1,
     ) -> Self::SqlPart
     where
-        T: WhereItem<S, Self> + 'q;
+        T: WhereItem<S, Self, ()> + 'q;
     fn handle_accept<T>(
         t: T,
         ctx: &mut Self::Context1,
@@ -109,24 +105,25 @@ pub trait Query<S>: Sized {
     type SqlPart;
     type Context1: Default;
     type Context2: Default;
-    #[deprecated = "in favor of ToSqlPart"]
+
     fn handle_where_item<T>(
         t: T,
         ctx: &mut Self::Context1,
     ) -> Self::SqlPart
     where
-        T: WhereItem<S, Self> + 'static,
+        T: WhereItem<S, Self, ()> + 'static,
     {
         todo!()
     }
+
     fn handle_accept<T>(
         t: T,
         ctx: &mut Self::Context1,
     ) -> Self::SqlPart
     where
-        AcceptToSqlPart<T>: ToSqlPart<Self, S>,
+        Self: Accept<T, S>,
     {
-        AcceptToSqlPart(t).to_sql_part(ctx)
+        todo!()
     }
 
     fn build_sql_part_back(
@@ -141,14 +138,14 @@ pub trait Query<S>: Sized {
     ) -> (String, Self::Output);
 }
 
-#[cfg(not(feature = "build_statments"))]
+// #[cfg(not(feature = "build_statments"))]
 pub(crate) use sql_part_::inner as sql_part;
-#[cfg(feature = "build_statements")]
-pub use sql_part_::inner as sql_part;
+// #[cfg(feature = "build_statements")]
+// pub use sql_part_::inner as sql_part;
 
 mod sql_part_ {
     pub mod inner {
-        /// a given type can implement both WhereItem and Accept
+        /// a given type can implement both WhereItemcannd Accept
         /// in order for rust to convert to SqlPart, it has to know
         /// which impl to target, here there are few new-type structs
         /// for each trait
@@ -200,11 +197,11 @@ pub trait Accept<This, S>: Query<S> {
     ) -> impl FnOnce(&mut Self::Context2) -> String + 'static + Send;
 }
 
-pub trait SelectItem<S> {
+pub trait SelectItem<S, I> {
     fn select_item(self) -> String;
 }
 
-pub trait WhereItem<S, Q: Query<S>> {
+pub trait WhereItem<S, Q: Query<S>, I> {
     fn where_item(
         self,
         ctx: &mut Q::Context1,
@@ -280,6 +277,7 @@ where
     Self: Sized,
     DB: Database,
 {
+    const LEN: usize;
     fn into_arguments(
         self,
         argument: &mut <DB as HasArguments<'q>>::Arguments,
@@ -298,13 +296,14 @@ pub mod impl_into_mut_arguments_prelude {
 mod impl_consume_into_args_for_encode_types {
     use super::impl_into_mut_arguments_prelude::*;
     macro_rules! impls {
-        ($([$ident:ident, $part:literal])*) => {
+        ($len:literal $([$ident:ident, $part:literal])*) => {
             #[allow(unused)]
             impl<'q, DB, $($ident,)*> IntoMutArguments<'q, DB> for ($($ident,)*)
             where
                 DB: Database,
                 $($ident: Encode<'q, DB> + Type<DB> + Send + 'q,)*
             {
+            const LEN : usize = $len;
                 fn into_arguments(
                     self,
                     argument: &mut <DB as HasArguments<'q>>::Arguments,
@@ -317,19 +316,19 @@ mod impl_consume_into_args_for_encode_types {
         };
     }
 
-    impls!();
-    impls!([T0, 0]);
-    impls!([T0, 0] [T1, 1]);
-    impls!([T0, 0] [T1, 1] [T2, 2]);
-    impls!([T0, 0] [T1, 1] [T2, 2] [T3, 3]);
-    impls!([T0, 0] [T1, 1] [T2, 2] [T3, 3] [T4, 4]);
-    impls!([T0, 0] [T1, 1] [T2, 2] [T3, 3] [T4, 4] [T5, 5]);
-    impls!([T0, 0] [T1, 1] [T2, 2] [T3, 3] [T4, 4] [T5, 5] [T6, 6]);
-    impls!([T0, 0] [T1, 1] [T2, 2] [T3, 3] [T4, 4] [T5, 5] [T6, 6] [T7, 7]);
-    impls!([T0, 0] [T1, 1] [T2, 2] [T3, 3] [T4, 4] [T5, 5] [T6, 6] [T7, 7] [T8, 8]);
-    impls!([T0, 0] [T1, 1] [T2, 2] [T3, 3] [T4, 4] [T5, 5] [T6, 6] [T7, 7] [T8, 8] [T9, 9]);
-    impls!([T0, 0] [T1, 1] [T2, 2] [T3, 3] [T4, 4] [T5, 5] [T6, 6] [T7, 7] [T8, 8] [T9, 9] [T10, 10]);
-    impls!([T0, 0] [T1, 1] [T2, 2] [T3, 3] [T4, 4] [T5, 5] [T6, 6] [T7, 7] [T8, 8] [T9, 9] [T10, 10] [T11, 11]);
+    impls!(0);
+    impls!(1 [T0, 0]);
+    impls!(2 [T0, 0] [T1, 1]);
+    impls!(3 [T0, 0] [T1, 1] [T2, 2]);
+    impls!(4 [T0, 0] [T1, 1] [T2, 2] [T3, 3]);
+    impls!(5 [T0, 0] [T1, 1] [T2, 2] [T3, 3] [T4, 4]);
+    impls!(6 [T0, 0] [T1, 1] [T2, 2] [T3, 3] [T4, 4] [T5, 5]);
+    impls!(7 [T0, 0] [T1, 1] [T2, 2] [T3, 3] [T4, 4] [T5, 5] [T6, 6]);
+    impls!(8 [T0, 0] [T1, 1] [T2, 2] [T3, 3] [T4, 4] [T5, 5] [T6, 6] [T7, 7]);
+    impls!(9 [T0, 0] [T1, 1] [T2, 2] [T3, 3] [T4, 4] [T5, 5] [T6, 6] [T7, 7] [T8, 8]);
+    impls!(10 [T0, 0] [T1, 1] [T2, 2] [T3, 3] [T4, 4] [T5, 5] [T6, 6] [T7, 7] [T8, 8] [T9, 9]);
+    impls!(11 [T0, 0] [T1, 1] [T2, 2] [T3, 3] [T4, 4] [T5, 5] [T6, 6] [T7, 7] [T8, 8] [T9, 9] [T10, 10]);
+    impls!(12 [T0, 0] [T1, 1] [T2, 2] [T3, 3] [T4, 4] [T5, 5] [T6, 6] [T7, 7] [T8, 8] [T9, 9] [T10, 10] [T11, 11]);
 
 }
 

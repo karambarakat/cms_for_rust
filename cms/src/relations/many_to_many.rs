@@ -2,7 +2,7 @@ use std::{marker::PhantomData, mem::take, pin::Pin, sync::Arc};
 
 use futures_util::Future;
 use queries_for_sqlx::{
-    execute_no_cache::ExecuteNoCache, insert_one_st::InsertStOne, prelude::{col, ft, stmt, SelectHelpers}, quick_query::QuickQuery, select_st::{
+    execute_no_cache::ExecuteNoCache, ident_safety::PanicOnUnsafe, insert_one_st::InsertStOne, prelude::{col, ft, stmt, SelectHelpers}, quick_query::QuickQuery, select_st::{
         joins::{join_type, Join},
         SelectSt,
     }, update_st::UpdateSt, InitStatement, SupportNamedBind
@@ -127,6 +127,7 @@ struct RelationStructure<R> {
                         _ => panic!("insert_one's many-to-many relation support the following format {}", "")
                     }
                 }
+
                 "from_get_all" | "from_get_one" => {
                     match from_value::<RelationStructure<()>>(
                         input,
@@ -239,7 +240,7 @@ struct RelationStructure<R> {
         S: Database + SupportNamedBind {
 // no op
         }
-        fn on_select(&self, st: &mut SelectSt<S, QuickQuery<'_>>)
+        fn on_select(&self, st: &mut SelectSt<S, QuickQuery<'_>,PanicOnUnsafe>)
         where
             S: SupportNamedBind + Database,
         {
@@ -325,7 +326,7 @@ struct RelationStructure<R> {
         fn schema_key(&self) -> &str {
             self.schema_key
         }
-        fn on_select(&self, st: &mut SelectSt<S, QuickQuery<'_>>)
+        fn on_select(&self, st: &mut SelectSt<S, QuickQuery<'_>, PanicOnUnsafe>)
         where
             S: SupportNamedBind + Database,
         {
@@ -381,13 +382,13 @@ struct RelationStructure<R> {
                 self.related_entity.on_select(&mut st);
 
                 st.select(
-                    ft(self.conj_table)
-                        .col(self.fk)
+                    ft(self.conj_table.to_string())
+                        .col(self.fk.to_string())
                         .alias("related_key"),
                 );
                 st.select(
-                    ft(self.conj_table)
-                        .col(self.lk)
+                    ft(self.conj_table.to_string())
+                        .col(self.lk.to_string())
                         .alias("base_key"),
                 );
 
@@ -436,7 +437,7 @@ struct RelationStructure<R> {
         fn schema_key(&self) -> &str {
             self.schema_key
         }
-        fn on_select(&self, st: &mut SelectSt<S, QuickQuery<'_>>)
+        fn on_select(&self, st: &mut SelectSt<S, QuickQuery<'_>, PanicOnUnsafe>)
         where
             S: SupportNamedBind + Database,
         {

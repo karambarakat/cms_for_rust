@@ -27,12 +27,10 @@ pub mod v1 {
     use sqlx::{database::HasArguments, Database, Encode, Type};
 
     use crate::{
-        sql_part::{
+        ident_safety::PanicOnUnsafe, sql_part::{
             AcceptToSqlPart, ColumnToSqlPart,
             ConstraintToSqlPart, ToSqlPart, WhereItemToSqlPart,
-        },
-        Accept, Constraint, Query, SchemaColumn,
-        SupportNamedBind, WhereItem,
+        }, Accept, Constraint, Query, SchemaColumn, SupportNamedBind, WhereItem
     };
 
     pub struct QuickQuery<'q>(PhantomData<&'q ()>);
@@ -63,7 +61,7 @@ pub mod v1 {
         for WhereItemToSqlPart<T>
     where
         S: Database + SupportNamedBind,
-        T: WhereItem<S, QuickQuery<'q>>,
+        T: WhereItem<S, QuickQuery<'q>, PanicOnUnsafe>,
         QuickQuery<'q>:
             Query<S, SqlPart = String, Context2 = ()>,
     {

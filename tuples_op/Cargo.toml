@@ -1,8 +1,0 @@
-[package]
-name = "tuples_op"
-version = "0.0.0"
-edition = "2021"
-
-[dependencies]
-tuples_op_macros = { path = "./tuples_op_macros" }
-

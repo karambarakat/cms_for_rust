@@ -1,5 +1,57 @@
 use std::any::{Any, TypeId};
 
+#[derive(PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub struct TupleAsMap<T>(pub T);
+
+pub mod tuple_as_map {
+    use core::fmt;
+    use std::fmt::Debug;
+
+    use super::TupleAsMap;
+
+    impl<T> Debug for TupleAsMap<T>
+    where
+        T: TupleAsMapTrait,
+    {
+        fn fmt(
+            &self,
+            f: &mut std::fmt::Formatter<'_>,
+        ) -> std::fmt::Result {
+            <T as TupleAsMapTrait>::fmt(&self.0, f)
+        }
+    }
+
+    pub trait TupleAsMapTrait {
+        fn keys() -> Vec<&'static str>;
+        fn fmt(
+            &self,
+            f: &mut std::fmt::Formatter<'_>,
+        ) -> std::fmt::Result;
+    }
+
+
+    impl<T> TupleElementKey for Vec<T>
+    where
+        T: TupleElementKey,
+    {
+        fn key() -> &'static str {
+            T::key()
+        }
+    }
+    impl<T> TupleElementKey for Option<T>
+    where
+        T: TupleElementKey,
+    {
+        fn key() -> &'static str {
+            T::key()
+        }
+    }
+
+    pub trait TupleElementKey {
+        fn key() -> &'static str;
+    }
+}
+
 pub trait TupleIndex {
     fn get<T: Any>(&self) -> Option<&T>;
     fn get_mut<T: Any>(&mut self) -> Option<&mut T>;
@@ -40,7 +92,7 @@ pub trait Contains<Craiterion>: 'static {
 // #[tuples_op::impl_trait]
 // #[impl_trait::scope(Each)]
 // #[impl_trait::impl_for(PhantomData<(Each, T)>)]
-// pub trait TupleSearch<T> 
+// pub trait TupleSearch<T>
 // where
 //     Eech: Contains<T>,
 // {

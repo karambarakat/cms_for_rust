@@ -4,11 +4,10 @@ use sqlx::{
 };
 
 use crate::{
-    sql_part::{
+    ident_safety::PanicOnUnsafe, sql_part::{
         AcceptToSqlPart, ColumnToSqlPart, ConstraintToSqlPart,
         ToSqlPart, WhereItemToSqlPart,
-    },
-    Accept, Constraint, Query, SchemaColumn, WhereItem,
+    }, Accept, Constraint, Query, SchemaColumn, WhereItem
 };
 
 mod sealing {
@@ -111,7 +110,7 @@ impl<T, S> ToSqlPart<PositionalStaticBuffer, S>
     for WhereItemToSqlPart<T>
 where
     S: Database,
-    T: WhereItem<S, PositionalStaticBuffer> + 'static,
+    T: WhereItem<S, PositionalStaticBuffer, PanicOnUnsafe> + 'static,
 {
     fn to_sql_part(
         self,

@@ -1,6 +1,6 @@
-# Customization, Performant CMS written in rust.
+# Customizable, Performant, and Convenient CMS written in rust.
 
-this is a going effort; it is not polished project, I think I have done the core part of the cms. 
+this is a going effort; it is not polished project, I think I have done the core part of the cms.
 
 my focus now is to make an admit UI and monetize the project by providing a cloud options, I'm looking for sponsership to dedicate more time on the project, if you are interested please contact me at k99.barakat@gmail.com
 
@@ -32,21 +32,32 @@ relations! { optional_to_many Todo Category }
 relations! { many_to_many Todo Tag }
 ```
 
-and just like that you a full CRUD http server and automatic migration:
+and just like that you a full CRUD http server, automatic migration and optionally an admin UI to manage your data.
+
+## Migration
+
+migaration can be done with one line of code:
+
+```rust
+cms_for_rust::migration::migrate(sqlx_db_conn.clone()).await;
+```
+
+this will look at the schema and create the necessary tables, keys, etc.
+
+
+## HTTP Server
 
 ```rust
 use cms_for_rust::axum_router::AxumRouter;
 
 cms_for_rust::migration::migrate(sqlx_db_conn.clone()).await;
 
-
 let app = axum::Router::new()
     .route("/", get(|| async { "Server is running" }))
     .nest("/todo", Todo::router())
     .nest("/category", Category::router())
+    .nest("/tag", Tag::router())
     .with_state(sqlx_db_conn);
-
-// example for request
 
 // load_some_dumpy_data()
 
@@ -65,7 +76,7 @@ let mut res = app
                 },
                 "relations": {
                     // populate both category and tags,
-                    // this will do a left join for category 
+                    // this will do a left join for category
                     // and spin another request for tags
                     "category": { "id": true, "attributes": true },
                     "tags": { "id": true, "attributes": true },
@@ -117,7 +128,9 @@ expect(&res).to_be(&json!({
 }));
 ```
 
-for all feature supported I have an example at client/examples/todo_app
+for all feature supported I have an example at client/examples/todo_app, here is list
+
+## Low level customization
 
 to build something custom, I have low-level API from queries_for_sqlx crate (see client/examples/easy_to_customize):
 
@@ -126,8 +139,11 @@ axum::Router::new()
     .route("/", get(|| async {
         let mut st = select_st::<_, Todo>();
 
+        // SELECT * FROM Todo
         st.select(all_columns());
 
+        // This will use information from sqlx to figure out
+        // the type of the output on the fly
         st.fetch_all(&db.0, row_to_json_cached::sqlite_row())
             .await
             .unwrap()
@@ -143,7 +159,9 @@ assert_eq!(
 );
 ```
 
-in the future I will have ORM-like API, the core of this code is already done I just need time to implement it. 
+## ORM-like API
+
+in the future I will have ORM-like API, the core of this code is already done I just need time to implement it.
 
 ```rust
 let res = select_st::new::<Todo>()
@@ -158,7 +176,7 @@ assert_eq!(
     Output {
         id: 3,
         attributes: Todo {
-            title: "hi", 
+            title: "hi",
             done: true,
             description: "hello",
         },
@@ -171,19 +189,18 @@ assert_eq!(
         )
     }
 );
-
 ```
 
 # Workspace Structure
 there are two core crates in this workspace:
 1.`queries_for_sqlx` low-level query builder, extention for sqlx
-2.`cms_for_rust` high level CMS/ORM crate, depends on the former.
+2.`cms_for_rust` high level CMS/ORM crate, built on top of the former.
 
-the idea behind this seperation is that I realize by working with SeaORM that convenient API and performent API lives in opposite ends of a spectrum. here is key aspect:
+the idea behind this seperation is that I realize by working with SeaORM that convenient API, and performent API are inherently irreconsible. here is key aspect:
     - performence: `queries_for_sqlx` maximizes performant and it is exteremely optimizeable and completly generic.
-    - convience: `cms_for_rust` maximizes convenience when performance might be impacted or I have some opinionated API, if I figured out the perfect API of something I will move it down to `queries_for_sqlx`. 
-    - unopinionated: every thing inside `queries_for_sqlx` is closely mimic the underlying database
-    - strict semver policy: there will be no breaking changes in `queries_for_sqlx` beyond v0.1.0, as long as sqlx don't have their v1 this will stay in v0,.
+    - convience: on the other hand `cms_for_rust` maximizes convenience at the expense of performance or I have some opinionated API. If I figured out the perfect API of something I will move it down to `queries_for_sqlx`.
+    - unopinionated: every thing inside `queries_for_sqlx` closely mimics the underlying database, where if there is anything opinionated it will be in `cms_for_rust`.
+    - strict semver policy: there will be no breaking changes in `queries_for_sqlx` beyond v0.1.0, as long as sqlx doesn't have its v1 this will not release v1.
 
 # Plugin System
 I'm working on a "Modular" plugin system inspired by Nvim plugins. the idea revolves arout the crate `inventory` the idea, each plugin is jsut an entry in Cargo.toml, and they export inventory items that define exaclty how they wish to be configured.
@@ -191,4 +208,3 @@ I'm working on a "Modular" plugin system inspired by Nvim plugins. the idea revo
 this way there would be no such thing as 'core plugins', the cms will ship with default plugins and default entrypoint, but that just a code you can replace completely with something else, and the cms serve as just a code management tool.
 
 for example, the migration in this crate is completely separate unit from the rest of the codebase, downstream crates can submit `dyn Migrate` that configure how the migration is run. same thing with 'entities' unit and 'axum' unit.
-

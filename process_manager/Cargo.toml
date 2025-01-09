@@ -1,0 +1,15 @@
+[package]
+name = "cms_process_manager"
+version = "0.0.1"
+description = "spawn 'cargo run' for your CMS and provide information about the subprocess"
+
+
+[dependencies]
+lazy_static = "1.5.0"
+inventory = "0.3.15"
+serde = { version = "1.0.215", features = ["derive"] }
+serde_json = "1.0.133"
+
+[features]
+default = ["basic_daemon"]
+basic_daemon = []

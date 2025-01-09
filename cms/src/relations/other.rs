@@ -1,4 +1,5 @@
 use queries_for_sqlx::{
+    ident_safety::PanicOnUnsafe,
     prelude::verbatim__warning__does_not_sanitize,
     quick_query::QuickQuery, select_st::SelectSt,
     SupportNamedBind,
@@ -12,8 +13,10 @@ pub struct BaseKeySet {
 }
 
 impl<S> SelectStLimit<S> for BaseKeySet {
-    fn limit(&self, st: &mut SelectSt<S, QuickQuery<'_>>)
-    where
+    fn limit(
+        &self,
+        st: &mut SelectSt<S, QuickQuery, PanicOnUnsafe>,
+    ) where
         S: Database + SupportNamedBind,
     {
         st.where_(verbatim__warning__does_not_sanitize(
@@ -31,8 +34,10 @@ pub struct OneKey {
 }
 
 impl<S> SelectStLimit<S> for OneKey {
-    fn limit(&self, st: &mut SelectSt<S, QuickQuery<'_>>)
-    where
+    fn limit(
+        &self,
+        st: &mut SelectSt<S, QuickQuery, PanicOnUnsafe>,
+    ) where
         S: Database + SupportNamedBind,
     {
         st.where_(verbatim__warning__does_not_sanitize(

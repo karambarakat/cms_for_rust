@@ -10,20 +10,19 @@ use crate::{
 };
 
 pub struct InsertStOne<'q, S: Database, R = ()> {
-    pub(crate) input: Vec<&'static str>,
-    pub(crate) output: Option<Vec<&'static str>>,
-    pub(crate) from: &'static str,
+    pub(crate) input: Vec<String>,
+    pub(crate) output: Option<Vec<String>>,
+    pub(crate) from: String,
     pub(crate) buffer: <S as HasArguments<'q>>::Arguments,
     pub(crate) returning: R,
     pub(crate) _pd: PhantomData<(S, &'q ())>,
 }
 
-
 impl<'q, S> InitStatement<()> for InsertStOne<'_, S, ()>
 where
     S: Database,
 {
-    type Init = &'static str;
+    type Init = String;
     fn init(init: Self::Init) -> Self {
         InsertStOne {
             input: Vec::new(),
@@ -93,10 +92,11 @@ where
     ) where
         T: IntoMutArguments<'q, S>,
     {
-        self.input.extend_from_slice(column);
-        value.into_arguments(&mut self.buffer);
+        todo!();
+        // self.input.extend_from_slice(column.to_owned());
+        // value.into_arguments(&mut self.buffer);
     }
-    pub fn insert<T>(&mut self, column: &'static str, value: T)
+    pub fn insert<T>(&mut self, column: String, value: T)
     where
         T: Type<S> + for<'e> Encode<'e, S> + Send + 'q,
     {

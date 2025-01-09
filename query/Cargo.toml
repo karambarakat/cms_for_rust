@@ -7,13 +7,13 @@ description = "composible sql query builder, with support of binding into query 
 license = "MIT"
 
 [dev-depencencies]
-better_testing = { path = "../better_testing", features = ["full"] }
 pretty_assertions = "1"
 
 [dependencies]
 case= "1.0.0"
 either = "1.13.0"
-query_macros = { path = "./query_macros", version = "0.1.0" }
+lazy_static = "1.5.0"
+cms_macros = { path = "../macros", version = "0.0.1" }
 sqlx = { version = "0.7.4", features = [
 "runtime-tokio",
     "uuid",
