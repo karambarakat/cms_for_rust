@@ -9,14 +9,75 @@ use crate::{
     SupportNamedBind,
 };
 
-pub struct QuickQuery<'q, S>(PhantomData<(&'q (), S)>);
+use sqlx::Arguments;
+
+pub struct ClonablQuery<'q, S>(PhantomData<(&'q (), S)>);
+
+pub trait IntoMutBut<'q, S: Database> {
+    fn into_mut(
+        &self,
+        buf: &mut <S as HasArguments<'q>>::Arguments,
+    );
+    fn clone_to_box(&self) -> Box<dyn IntoMutBut<'q, S> + 'q>;
+}
+
+impl<'q, S: Database, T> IntoMutBut<'q, S> for T
+where
+    T: for<'e> Encode<'e, S> + Type<S> + Send + 'q + Clone,
+{
+    fn into_mut(
+        &self,
+        buf: &mut <S as HasArguments<'q>>::Arguments,
+    ) {
+        let cloned = self.clone();
+        buf.add(cloned);
+    }
+    fn clone_to_box(&self) -> Box<dyn IntoMutBut<'q, S> + 'q> {
+        Box::new(Clone::clone(self))
+    }
+}
+
+pub struct ClonableCtx1<'q, S: Database> {
+    size: usize,
+    arg: <S as HasArguments<'q>>::Arguments,
+    back: Vec<Box<dyn IntoMutBut<'q, S> + 'q>>,
+}
+
+impl<'q, S: Database> Default for ClonableCtx1<'q, S> {
+    fn default() -> Self {
+        ClonableCtx1 {
+            size: 0,
+            arg: Default::default(),
+            back: Default::default(),
+        }
+    }
+}
+
+impl<'q, S: Database> Clone for ClonableCtx1<'q, S> {
+    fn clone(&self) -> Self {
+        let mut arg = Default::default();
+        let back = self
+            .back
+            .iter()
+            .map(|e| {
+                e.into_mut(&mut arg);
+                e.clone_to_box()
+            })
+            .collect();
+        Self {
+            size: self.size.clone(),
+            arg,
+            back,
+        }
+    }
+}
 
 impl<'q, S: Database + SupportNamedBind> Query
-    for QuickQuery<'q, S>
+    for ClonablQuery<'q, S>
 {
     type IdentSafety = PanicOnUnsafe;
     type SqlPart = String;
-    type Context1 = (usize, <S as HasArguments<'q>>::Arguments);
+    type Context1 = ClonableCtx1<'q, S>;
     type Context2 = ();
     fn build_sql_part_back(
         _: &mut Self::Context2,
@@ -29,17 +90,17 @@ impl<'q, S: Database + SupportNamedBind> Query
         ctx1: Self::Context1,
         f: impl FnOnce(&mut Self::Context2) -> String,
     ) -> (String, Self::Output) {
-        (f(&mut ()), ctx1.1)
+        (f(&mut ()), ctx1.arg)
     }
 }
 
-impl<'q, S> QueryHandlers<S> for QuickQuery<'q, S>
+impl<'q, S> QueryHandlers<S> for ClonablQuery<'q, S>
 where
     S: Database + SupportNamedBind,
     // needed because the S in this impl may not match the S in Query impl:
     Self: Query<
         SqlPart = String,
-        Context1 = (usize, <S as HasArguments<'q>>::Arguments),
+        Context1 = ClonableCtx1<'q, S>,
         Context2 = (),
     >,
 {
@@ -64,10 +125,10 @@ where
 }
 
 #[cfg(not(feature = "flexible_accept_impl"))]
-impl<'q, S, T> Accept<T, S> for QuickQuery<'q, S>
+impl<'q, S, T> Accept<T, S> for ClonablQuery<'q, S>
 where
     S: Database + SupportNamedBind,
-    T: for<'e> Encode<'e, S> + Type<S> + Send + 'q,
+    T: for<'e> Encode<'e, S> + Type<S> + Send + 'q + Clone,
 {
     fn accept(
         this: T,
@@ -75,9 +136,11 @@ where
     ) -> impl FnOnce(&mut Self::Context2) -> String + 'static + Send
     {
         use sqlx::Arguments;
-        ctx1.1.add(this);
-        ctx1.0 += 1;
-        let len = ctx1.0;
+        let cloned = this.clone();
+        ctx1.back.push(Box::new(cloned));
+        ctx1.arg.add(this);
+        ctx1.size += 1;
+        let len = ctx1.size;
         move |_| format!("${}", len)
     }
 }
@@ -94,9 +157,11 @@ where
     ) -> impl FnOnce(&mut Self::Context2) -> String + 'static + Send
     {
         use sqlx::Arguments;
-        ctx1.1.add(this.0);
-        ctx1.0 += 1;
-        let len = ctx1.0;
+        let cloned = this.clone();
+        ctx1.back.push(Box::new(cloned));
+        ctx1.arg.add(this);
+        ctx1.size += 1;
+        let len = ctx1.size;
         move |_| format!("${}", len)
     }
 }
@@ -115,9 +180,11 @@ where
     ) -> impl FnOnce(&mut Self::Context2) -> String + 'static + Send
     {
         use sqlx::Arguments;
-        ctx1.1.add(this());
-        ctx1.0 += 1;
-        let len = ctx1.0;
+        let cloned = this.clone();
+        ctx1.back.push(Box::new(cloned));
+        ctx1.arg.add(this);
+        ctx1.size += 1;
+        let len = ctx1.size;
         move |_| format!("${}", len)
     }
 }

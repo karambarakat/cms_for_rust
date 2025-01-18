@@ -1,124 +1,140 @@
-use std::{collections::HashSet, ops::Not};
+use std::pin::Pin;
 
 use axum::{
-    body::Body,
-    extract::State,
-    http::{Response, StatusCode},
-    response::IntoResponse,
+    extract::{Path, State},
     Json,
 };
 use case::CaseExt;
-use queries_for_sqlx::{
-    execute_no_cache::ExecuteNoCache, impl_into_mut_arguments_prelude::Type, prelude::{col, stmt}, quick_query::QuickQuery, InitStatement, IntoMutArguments, SupportNamedBind, SupportReturning
-};
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Map, Value};
-use sqlx::{
-    ColumnIndex, Database, Decode, Encode, Executor, Pool, Row,
-};
-use tracing::warn;
+use queries_for_sqlx::prelude::*;
+use serde_json::{Map, Value};
+use sqlx::{sqlite::SqliteRow, Row};
+use sqlx::{Pool, Sqlite};
 
 use crate::{
-    axum_router::{error, MyError},
-    relations::get_relation,
+    dynamic_schema::{
+        DynamicRelationResult, COLLECTIONS, RELATIONS,
+    },
+    error::{self, GlobalError},
+    queries_bridge::DeleteSt,
 };
 
-use super::Id;
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DeleteInput<E, Q, Returning, RK> {
-    #[serde(skip)]
-    pub entity: E,
-    #[serde(flatten)] // only have id in delete_one
-    pub query: Q,
-    #[serde(rename = "attributes")]
-    pub return_data: Returning,
-    pub relations_keys: RK,
+pub trait DynDeleteWorker: Send + Sync {
+    fn sub_op(
+        &mut self,
+        db: State<Pool<Sqlite>>,
+    ) -> Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
+    fn from_row(&mut self, r: &SqliteRow) -> Value;
 }
 
-pub async fn delete_one<S, T>(
-    pool: State<Pool<S>>,
-    Json(input): Json<
-        DeleteInput<
-            // entity: dynaimc dispatch
-            (),
-            // query: now only supports id
-            Id,
-            // return data:
-            bool,
-            bool,
-        >,
-    >,
-) -> Result<Response<Body>, MyError>
-where
-    S: Database + SupportReturning + SupportNamedBind,
-    T: crate::entities::Entity<S> + Serialize,
-    for<'c> &'c mut <S as Database>::Connection:
-        Executor<'c, Database = S>,
-    for<'r> &'r str: ColumnIndex<S::Row>,
-    i64: Type<S> + for<'d> Decode<'d, S> + for<'d> Encode<'d, S>,
-{
-    let mut st = stmt::DeleteSt::<_, QuickQuery>::init(T::table_name());
+#[derive(serde::Deserialize)]
+pub struct DeleteInput {
+    pub id: i64,
+    pub return_attr: bool,
+    pub return_residual: Vec<String>,
+}
 
-    let id = input.query.id;
-    st.where_(col("id").eq(move || id));
+#[derive(serde::Serialize)]
+pub struct DeleteOutput {
+    pub id: i64,
+    pub attr: Value,
+    pub relations: Map<String, Value>,
+}
 
-    if input.return_data {
-        let mut output = json!({
-            "id": id,
-            "data": null,
-            "relations_keys": {},
-        });
-        let mut relations_keys = serde_json::Map::default();
-        let data = st
-            .returning(vec!["*"])
-            .fetch_optional(&pool.0, |row| {
-                use sqlx::Column;
-                use sqlx::Row;
+#[axum::debug_handler]
+pub async fn delete_one_dynmaic(
+    db: State<Pool<Sqlite>>,
+    collection_name: Path<String>,
+    input: Json<DeleteInput>,
+) -> Result<Json<Option<DeleteOutput>>, GlobalError> {
+    let collection_gaurd = COLLECTIONS.read().await;
 
-                let mut cols = row
-                    .columns()
-                    .iter()
-                    .map(|e| e.name())
-                    .collect::<HashSet<_>>();
+    let collection = collection_gaurd
+        .get(&collection_name.0.to_camel())
+        .ok_or(error::entry_not_found(&collection_name.0))?;
 
-                cols.remove("id");
-                let member = HashSet::from_iter(T::members());
-                let cols = cols.difference(&member);
+    let mut st =
+        DeleteSt::init(collection.table_name().to_string());
 
-                for member in cols {
-                    let id: Option<i64> = row.get(member);
-                    relations_keys
-                        .insert(member.to_string(), id.into());
-                }
+    st.where_(col("id").eq(input.id));
 
-                let t = T::from_row(&row)?;
+    let retrun_any =
+        input.return_attr || !input.return_residual.is_empty();
 
-                return Ok(t);
-            })
-            .await
-            .unwrap();
-
-        match data {
-            Some(data) => Ok(Json(json!({
-                "id": id,
-                "attributes": data,
-                "relations_keys": relations_keys,
-            }))
-            .into_response()),
-            None => Ok(Json(json!({})).into_response()),
-        }
+    let ret = if input.return_attr {
+        st.returning(vec!["*"])
     } else {
-        let id = st
-            .returning(vec!["id"])
-            .fetch_optional(&pool.0, |r| {
-                let id: i64 = r.get("id");
-                Ok(id)
-            })
-            .await
-            .unwrap();
+        st.returning(vec![])
+    };
 
-        Ok(Json(json!({ "id": id })).into_response())
-    }
+    let mut rels = if input.return_residual.is_empty() {
+        None
+    } else {
+        let relation_gaurd = RELATIONS.read().await;
+        let mut rels = Vec::new();
+        let mut tra = Vec::new();
+
+        'found: for key in input.0.return_residual.iter() {
+            for r in relation_gaurd
+                .get(collection.table_name())
+                .unwrap()
+            {
+                match r
+                    .clone()
+                    .init_on_delete(&key)
+                {
+                    DynamicRelationResult::Ok(ok) => {
+                        rels.push(ok);
+                        tra.push(key.to_owned());
+                        continue 'found;
+                    }
+                    DynamicRelationResult::InvalidInput(err) => {
+                        return Err(format!(
+                            "relation {key} invalid input for {}: {}",
+                            collection.table_name(),
+                            err
+                        ))?
+                    }
+                    DynamicRelationResult::NotFound => {}
+                }
+            }
+
+            return Err(error::to_refactor(&format!(
+                "relation {key} not found for {}",
+                collection.table_name()
+            ))
+            .into());
+        }
+
+        for each in rels.iter_mut() {
+            each.sub_op(db.clone()).await;
+        }
+
+        Some((relation_gaurd, rels, tra))
+    };
+
+    let res = ret
+        .fetch_one(&db.0, |r| {
+            if retrun_any {
+                let mut relations = Map::default();
+                let id = r.get("id");
+                let attr = collection.from_row_noscope(&r);
+
+                if let Some((_, rels, tra)) = &mut rels {
+                    for rel in rels.into_iter().zip(tra.iter()) {
+                        let res = rel.0.from_row(&r);
+                        relations.insert(rel.1.to_owned(), res);
+                    }
+                }
+                return Ok(Some(DeleteOutput {
+                    id,
+                    attr,
+                    relations,
+                }));
+            }
+            return Ok(None);
+        })
+        .await
+        .unwrap();
+
+    Ok(Json(res))
 }

@@ -84,3 +84,5 @@ pub(crate) mod eventfull_list {
 
     // impl<C> inventory::Collect for Submitable<C> {}
 }
+
+

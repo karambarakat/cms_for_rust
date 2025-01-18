@@ -1,4 +1,4 @@
-use crate::{Accept, Query};
+use crate::{Accept, Query, QueryHandlers};
 
 pub struct Sanitize<T>(pub T);
 
@@ -42,7 +42,7 @@ sanitize_of_to_string_impls!(u64);
 
 impl<S, T, Q> Accept<Sanitize<T>, S> for Q
 where
-    Q: Query<S>,
+    Q: QueryHandlers<S>,
     T: SanitizeBehavior<S>,
 {
     fn accept(
@@ -57,7 +57,7 @@ where
 /// rely on sanitize implementation of String
 impl<S, Q> Accept<String, S> for Q
 where
-    Q: Query<S>,
+    Q: QueryHandlers<S>,
 {
     fn accept(
         this: String,
@@ -65,5 +65,27 @@ where
     ) -> impl FnOnce(&mut Self::Context2) -> String + 'static
     {
         move |_| <String as SanitizeBehavior<S>>::sanitize(this)
+    }
+}
+
+pub mod exports {
+    pub use crate::bind;
+    pub fn sanitize<T>(this: T) -> crate::Sanitize<T> {
+        super::Sanitize(this)
+    }
+    pub struct verbatim<T>(pub T);
+
+    impl<S, Q>
+        crate::Accept<crate::Sanitize<verbatim<String>>, S> for Q
+    where
+        Q: crate::QueryHandlers<S>,
+    {
+        fn accept(
+            this: crate::Sanitize<verbatim<String>>,
+            _: &mut Self::Context1,
+        ) -> impl FnOnce(&mut Self::Context2) -> String + 'static + Send
+        {
+            move |_| this.0 .0
+        }
     }
 }

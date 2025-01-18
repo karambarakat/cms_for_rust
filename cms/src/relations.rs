@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
 use serde::{Deserialize, Serialize};
+pub mod deep_relation;
 pub mod many_to_many;
 pub mod one_to_many;
 pub mod one_to_many_inverse;
@@ -9,13 +10,13 @@ pub mod optional_to_many_inverse;
 
 pub mod prelude {
     pub use super::{LinkSpec, Linked};
-    pub use crate::orm::dynamic_schema::{
+    pub use crate::dynamic_schema::{
         CompleteRelationForServer, DynGetOneWorker,
         DynamicWorker,
     };
-    pub use crate::orm::operations::select_one::GetOneWorker;
-    pub use crate::orm::relations::RelationWorker;
-    pub use crate::orm::Collection;
+    pub use crate::operations::select_one::GetOneWorker;
+    pub use crate::relations::RelationWorker;
+    pub use crate::traits::Collection;
     pub use queries_for_sqlx::ident_safety::PanicOnUnsafe;
     pub use queries_for_sqlx::prelude::*;
     pub use queries_for_sqlx::quick_query::QuickQuery;

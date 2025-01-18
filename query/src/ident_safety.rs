@@ -3,15 +3,9 @@ use std::{
     sync::RwLock,
 };
 
-pub trait IdentSafety {
-    type Table: AsRef<str>;
-    type Column: AsRef<str>;
-    #[track_caller]
-    fn check_table(this: &Self::Table) {}
-    #[track_caller]
-    fn check_column(table: &Self::Table, this: &Self::Column) {}
-}
+use crate::{AcceptColIdent, AcceptTableIdent, IdentSafety};
 
+#[derive(Default)]
 pub struct PanicOnUnsafe;
 
 lazy_static::lazy_static! {
@@ -31,29 +25,47 @@ pub fn define_schema(columns: &[(&str, &[&str])]) {
 impl IdentSafety for PanicOnUnsafe {
     type Table = String;
     type Column = String;
-    #[track_caller]
-    fn check_table(this: &Self::Table) {
-        let this: &str = this.as_ref();
-        if !IDENTS.read().unwrap().0.contains(this) {
+    fn check_other<T: AsRef<str>>(any_: T) {
+        let any_: &str = any_.as_ref();
+        if any_.contains('\'') {
             panic!(
-                "InjectionRisk: table {} is not defined",
-                this
+                "InjectionRisk: found single quote in {}",
+                any_
             );
         }
     }
+    fn init<T: AsRef<str>>(on_table: Option<&T>) -> Self {
+        if let Some(on_table) = on_table {
+            check_table(on_table.as_ref());
+        }
+        Self::default()
+    }
+}
 
-    #[track_caller]
-    fn check_column(table: &Self::Table, this: &Self::Column) {
-        let this: &str = this.as_ref();
+pub type NoOp = ();
+
+impl IdentSafety for NoOp {
+    type Table = String;
+
+    type Column = String;
+
+    fn check_other<T: AsRef<str>>(any_: T) {}
+
+    fn init<T: AsRef<str>>(on_table: Option<&T>) -> Self {}
+}
+
+#[track_caller]
+pub fn check_column(table: Option<&str>, this: &str) {
+    let this: &str = this.as_ref();
+
+    if let Some(table) = table {
         let table: &str = table.as_ref();
-
         if !IDENTS.read().unwrap().0.contains(table) {
             panic!(
                 "InjectionRisk: table {} is not defined",
                 table
             );
         }
-
         if !IDENTS
             .read()
             .unwrap()
@@ -67,6 +79,65 @@ impl IdentSafety for PanicOnUnsafe {
                 table, this
             );
         }
+    } else {
+    }
+}
+
+#[track_caller]
+pub fn check_table(this: &str) {
+    let this: &str = this.as_ref();
+    if !IDENTS.read().unwrap().0.contains(this) {
+        panic!("InjectionRisk: table {} is not defined", this);
+    }
+}
+
+impl AcceptTableIdent<&str> for PanicOnUnsafe {
+    #[inline]
+    #[track_caller]
+    fn into_table(this: &str) -> String {
+        check_table(this);
+        this.to_owned()
+    }
+}
+
+impl AcceptColIdent<&str> for PanicOnUnsafe {
+    #[inline]
+    #[track_caller]
+    fn into_col(this: &str) -> String {
+        check_column(None, this);
+        this.to_owned()
+    }
+}
+
+impl AcceptTableIdent<&String> for PanicOnUnsafe {
+    #[inline]
+    #[track_caller]
+    fn into_table(this: &String) -> Self::Table {
+        check_table(this);
+        this.clone()
+    }
+}
+
+impl AcceptColIdent<&String> for PanicOnUnsafe {
+    #[inline]
+    #[track_caller]
+    fn into_col(this: &String) -> Self::Column {
+        check_column(None, this);
+        this.clone()
+    }
+}
+
+impl AcceptTableIdent<String> for PanicOnUnsafe {
+    fn into_table(this: String) -> String {
+        check_table(&this);
+        this
+    }
+}
+
+impl AcceptColIdent<String> for PanicOnUnsafe {
+    fn into_col(this: String) -> String {
+        check_column(None, &this);
+        this
     }
 }
 

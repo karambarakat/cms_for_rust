@@ -1,397 +1,457 @@
-use std::{marker::PhantomData, mem::take, pin::Pin};
+use std::collections::HashMap;
 
-use futures_util::Future;
-use queries_for_sqlx::{
-    execute_no_cache::ExecuteNoCache,
-    ident_safety::PanicOnUnsafe,
-    insert_one_st::InsertStOne,
-    prelude::{col, stmt},
-    quick_query::QuickQuery,
-    select_st::{
-        joins::{join_type, Join},
-        SelectSt,
+use case::CaseExt;
+use queries_for_sqlx::create_table_st::CreateTableHeader;
+use serde::de::DeserializeOwned;
+use serde_json::from_value;
+
+use crate::{
+    dynamic_schema::{
+        DynInsertOneWorker, DynamicRelationResult,
     },
-    update_st::UpdateSt,
-    InitStatement, SupportNamedBind,
+    migration2::DynMigration,
+    operations::{
+        delete_one::DynDeleteWorker,
+        insert_one::InsertOneWorker, select_many::GetAllWorker,
+        update_one::UpdateOneWorker, IdOutput, SimpleOutput,
+    },
+    queries_bridge::{SelectSt, UpdateSt},
+    relations::{ManyWorker, UpdateId},
 };
-use serde_json::{from_value, json, Value};
-use sqlx::{
-    ColumnIndex, Database, Decode, Encode, Executor, Pool, Row,
-    Type,
-};
-use tracing::warn;
-
-use crate::{entities::DynEntity, entities::EntityPhantom};
 
 use super::{
-    DynRelation, InsertInput, SubmitableRelation, UpdateInput,
+    prelude::*, LinkIdWorker, LinkSpecCanInsert,
+    LinkSpecCanUpdate, UpdateIdWorker,
 };
 
-pub struct OneToMany<Base, Related> {
-    pub relation_key: &'static str,
-    pub foreign_entity_snake_case: &'static str,
-    pub foreign_table: &'static str,
-    pub _entities: PhantomData<(Base, Related)>,
+#[derive(Clone)]
+pub struct OptionalToMany {
+    pub foriegn_key: String,
 }
 
-pub struct OptionalToMany<O, M>(
-    pub &'static str,
-    pub PhantomData<(O, M)>,
-);
-
-impl<O, M> OptionalToMany<O, M> {
-    pub fn colomn_link(str: &'static str) -> Self {
-        Self(str, PhantomData)
-    }
-}
-
-impl<S, Base, Related> SubmitableRelation<S>
-    for OneToMany<Base, Related>
-where
-    S: Database,
-    EntityPhantom<Base>: DynEntity<S>,
-    Base: Send + 'static,
-    EntityPhantom<Related>: DynEntity<S>,
-    Related: Send + 'static,
-    Option<i64>:
-        Type<S> + for<'d> Decode<'d, S> + for<'e> Encode<'e, S>,
-    i64: Type<S> + for<'d> Encode<'d, S> + for<'d> Decode<'d, S>,
-    S: Database,
-    for<'s> &'s str: ColumnIndex<S::Row>,
-{
-    fn schema_key(&self) -> &str {
-        self.foreign_entity_snake_case
-    }
-    fn convert(
+impl DynMigration for (&'static str, OptionalToMany) {
+    fn migrate(
         &self,
-        origin: &'static str,
-        input: serde_json::Value,
-    ) -> Box<dyn DynRelation<S>> {
-        match origin {
-            "from_update_one" => {
-                match from_value::<InsertInput<UpdateInput<i64>>>(input) {
-                        Ok(InsertInput{
-                            id: true,
-                            attributes: true,
-                            data: UpdateInput::set { id }
-                        }) => {
-                                Box::new(OneToManyUpdateSet {
-                                    input: id,
-                                schema_relation_key: self
-                                    .foreign_entity_snake_case,
-                                relation_key: self.relation_key,
-                                related_entity: Box::new(
-                                    EntityPhantom::<Related>(
-                                        PhantomData,
-                                    ),
-                                ),
-                                output: Default::default(),
-                                })
-                            },
-                        Ok(_) => todo!("update_one's one-to-many relation support the following format: id: true, attributes: true, data: {{ set }}"),
-                        Err(err) => panic!("update_one's one-to-many format {:?}", err),
-                    }
-            }
-            "from_get_all" | "from_get_one" => {
-                Box::new(OneToManyS {
-                    input,
-                    relation_key: self.relation_key,
-                    related_entity: Box::new(EntityPhantom::<
-                        Related,
-                    >(
-                        PhantomData
-                    )),
-                    value: Default::default(),
-                    schema_relation_key: self
-                        .foreign_entity_snake_case,
-                })
-            }
-            "from_insert_one" => {
-                match from_value::<InsertInput<Id>>(input) {
-                    Ok(InsertInput {
-                        id: true,
-                        attributes: true,
-                        data,
-                    }) => {
-                        return Box::new(OneToManyInsert {
-                            input: data,
-                            relation_key: self.relation_key,
-                            related_entity: Box::new(
-                                EntityPhantom::<Related>(
-                                    PhantomData,
-                                ),
-                            ),
-                            output: Default::default(),
-                            schema_relation_key: self
-                                .foreign_entity_snake_case,
-                        });
-                    }
-                    _ => {
-                        panic!("insert_one input only supports {{'id': true, 'attributes': true }}")
-                    }
-                };
-                // match from_value::<InsertInput<()>>(
-                //     input,
-                // ) {
-            }
-            _ => {
-                todo!("query {} is not supported", origin)
-            }
+        ctx: &mut crate::migration2::MigrationCtx,
+    ) -> Result<(), String> {
+        let name = self.0.to_owned();
+
+        todo!();
+
+        Ok(())
+    }
+}
+
+impl LinkSpec for OptionalToMany {}
+impl LinkSpecCanInsert for OptionalToMany {
+    type Input = i64;
+}
+
+impl LinkSpecCanUpdate for OptionalToMany {
+    type Input = Option<i64>;
+}
+
+pub struct OptionalToManyDynamic<From, To> {
+    pub(crate) list_itself_under: String,
+    pub(crate) rel_spec: OptionalToMany,
+    pub(crate) key: String,
+    pub(crate) _pd: PhantomData<(From, To)>,
+}
+
+impl<From, To> OptionalToManyDynamic<From, To> {
+    pub fn new() -> Self
+    where
+        From: Linked<To, Spec = OptionalToMany>,
+        From: Collection<Sqlite> + Serialize + 'static,
+        To: Collection<Sqlite>,
+    {
+        Self {
+            list_itself_under: From::table_name().to_string(),
+            key: To::table_name().to_snake(),
+            rel_spec: From::spec(),
+            _pd: PhantomData,
         }
     }
 }
 
-pub struct OneToManyUpdateSet<S> {
-    pub input: i64,
-    pub schema_relation_key: &'static str,
-    pub relation_key: &'static str,
-    pub related_entity: Box<dyn DynEntity<S>>,
-    pub output: Option<Value>,
+impl<From, To> CompleteRelationForServer
+    for OptionalToManyDynamic<From, To>
+where
+    From: Collection<Sqlite> + Serialize + 'static,
+    To: Collection<Sqlite>
+        + Serialize
+        + 'static
+        + DeserializeOwned,
+{
+    fn list_iteself_under(&self) -> String {
+        self.list_itself_under.to_string()
+    }
+
+    fn key(&self) -> String {
+        self.key.clone()
+    }
+
+    fn init_on_delete(
+        self: Arc<Self>,
+        to: &str,
+    ) -> DynamicRelationResult<Box<dyn DynDeleteWorker>> {
+        if to != self.key {
+            return DynamicRelationResult::NotFound;
+        }
+
+        struct Worker {
+            spec: OptionalToMany,
+        }
+
+        impl DynDeleteWorker for Worker {
+            fn sub_op(
+                &mut self,
+                db: axum::extract::State<Pool<Sqlite>>,
+            ) -> std::pin::Pin<
+                Box<dyn std::future::Future<Output = ()> + Send>,
+            > {
+                Box::pin(async move {})
+            }
+
+            fn from_row(&mut self, r: &SqliteRow) -> Value {
+                let re: Option<i64> =
+                    r.get(self.spec.foriegn_key.as_str());
+
+                re.into()
+            }
+        }
+
+        let ret = {
+            // DynamicWorker::new( self.clone(),
+            Worker {
+                spec: self.rel_spec.clone(),
+            }
+            // )
+        };
+
+        DynamicRelationResult::Ok(Box::new(ret))
+    }
+
+    fn init_on_update(
+        self: Arc<Self>,
+        to: &str,
+        input: Value,
+    ) -> DynamicRelationResult<
+        Box<dyn crate::dynamic_schema::DynUpdateOneWorker>,
+    > {
+        if to != self.key {
+            return DynamicRelationResult::NotFound;
+        }
+
+        #[allow(non_camel_case_types)]
+        #[derive(Deserialize)]
+        enum ValidInput<T> {
+            set(Option<i64>),
+            create_new(T),
+        }
+
+        let input = match from_value::<ValidInput<To>>(input) {
+            Ok(ValidInput::set(ok)) => ok,
+            Ok(_) => todo!(),
+            Err(err) => {
+                return DynamicRelationResult::InvalidInput(
+                    err.to_string(),
+                )
+            }
+        };
+
+        return DynamicRelationResult::Ok(DynamicWorker::new(
+            self.clone(),
+            UpdateIdWorker {
+                input,
+                spec: self.rel_spec.clone(),
+                _pd: PhantomData::<(From, To)>,
+            },
+        ));
+    }
+
+    fn init_on_insert(
+        self: Arc<Self>,
+        to: &str,
+        input: Value,
+    ) -> DynamicRelationResult<Box<dyn DynInsertOneWorker>> {
+        if to != self.key {
+            return DynamicRelationResult::NotFound;
+        }
+
+        #[allow(non_camel_case_types)]
+        #[derive(Deserialize)]
+        enum ValidInput {
+            set_id_to_and_populate(i64),
+        }
+
+        let input = match from_value::<ValidInput>(input) {
+            Ok(ok) => ok,
+            Err(err) => {
+                return DynamicRelationResult::InvalidInput(
+                    err.to_string(),
+                )
+            }
+        };
+
+        let ret = match input {
+            ValidInput::set_id_to_and_populate(id) => {
+                DynamicWorker::new(
+                    self.clone(),
+                    LinkIdWorker {
+                        input: id,
+                        spec: self.rel_spec.clone(),
+                        _pd: PhantomData::<(From, To)>,
+                    },
+                )
+            }
+        };
+
+        return DynamicRelationResult::Ok(ret);
+    }
+
+    fn init_on_get_all(
+        self: Arc<Self>,
+        to: &str,
+        input: Value,
+    ) -> DynamicRelationResult<
+        Box<dyn crate::dynamic_schema::DynGetManyWorker>,
+    > {
+        if to != self.key {
+            return DynamicRelationResult::NotFound;
+        }
+
+        #[derive(Deserialize)]
+        struct ValidInput {}
+
+        let input = match from_value::<ValidInput>(input) {
+            Ok(ok) => ok,
+            Err(err) => {
+                return DynamicRelationResult::InvalidInput(
+                    err.to_string(),
+                )
+            }
+        };
+
+        let ret = DynamicWorker::new(
+            self.clone(),
+            ManyWorker {
+                spec: self.rel_spec.clone(),
+                _pd: PhantomData::<(From, To)>,
+            },
+        );
+
+        return DynamicRelationResult::Ok(ret);
+    }
+
+    fn init_on_get(
+        self: Arc<Self>,
+        to: &str,
+        input: Value,
+    ) -> DynamicRelationResult<Box<dyn DynGetOneWorker>> {
+        if to != self.key {
+            return DynamicRelationResult::NotFound;
+        }
+
+        #[derive(Deserialize)]
+        struct ValidInput {}
+
+        let input = match from_value::<ValidInput>(input) {
+            Ok(_) => {}
+            Err(err) => {
+                return DynamicRelationResult::InvalidInput(
+                    err.to_string(),
+                )
+            }
+        };
+
+        DynamicRelationResult::Ok(Box::new(DynamicWorker {
+            rw: Some(RelationWorker {
+                rel_spec: self.rel_spec.clone(),
+                _pd: self._pd,
+            }),
+            arc: self.clone(),
+            inner: Default::default(),
+        }))
+    }
 }
 
-impl<S> DynRelation<S> for OneToManyUpdateSet<S>
+impl<From, To> GetOneWorker
+    for RelationWorker<OptionalToMany, From, To>
 where
-    Option<i64>: Type<S> + for<'d> Decode<'d, S>,
-    S: Database,
-    i64: Type<S> + for<'d> Encode<'d, S>,
-    for<'s> &'s str: ColumnIndex<S::Row>,
+    From: Send + Collection<Sqlite>,
+    To: Send + Collection<Sqlite>,
 {
-    fn take2(&mut self, _local_id: i64) -> Option<Value> {
-        self.output.take()
+    type Output = Option<SimpleOutput<To>>;
+    type Inner = Option<(i64, To)>;
+
+    fn on_select(
+        &self,
+        data: &mut Self::Inner,
+        st: &mut SelectSt<Sqlite>,
+    ) {
+        st.left_join(join {
+            on_table: To::table_name().to_string(),
+            on_column: "id".to_string(),
+            local_column: self.rel_spec.foriegn_key.to_string(),
+        });
+        st.select_scoped(
+            From::table_name().to_string(),
+            self.rel_spec.foriegn_key.clone(),
+        );
+        To::on_select(st);
     }
-    fn on_update(&self, st: &mut UpdateSt<S, QuickQuery<'_>>)
-    where
-        S: Database + SupportNamedBind,
-    {
-        let input = self.input;
-        st.set(self.relation_key, move || input);
+
+    fn from_row(&self, data: &mut Self::Inner, row: &SqliteRow) {
+        let id: Option<i64> =
+            row.get(self.rel_spec.foriegn_key.as_str());
+        if let Some(id) = id {
+            let value = To::from_row_scoped(row);
+            *data = Some((id, value));
+        }
     }
+
+    async fn sub_op<'this>(
+        &'this self,
+        data: &'this mut Self::Inner,
+        pool: Pool<Sqlite>,
+    ) {
+    }
+
+    fn take(self, data: Self::Inner) -> Self::Output {
+        data.map(|(id, attr)| SimpleOutput { id, attr })
+    }
+}
+
+impl<B, T> InsertOneWorker
+    for LinkIdWorker<B, T, OptionalToMany, i64>
+where
+    B: Collection<Sqlite>,
+    T: Collection<Sqlite>,
+{
+    type Inner = Option<T>;
+
+    type Output = SimpleOutput<T>;
+
+    fn on_insert(
+        &self,
+        data: &mut Self::Inner,
+        st: &mut stmt::InsertStOne<'_, Sqlite, ()>,
+    ) {
+        st.insert(self.spec.foriegn_key.clone(), self.input);
+    }
+
+    fn from_row(&self, data: &mut Self::Inner, row: &SqliteRow) {
+    }
+
     fn sub_op2<'this>(
-        &'this mut self,
-        pool: Pool<S>,
-        _: i64,
-    ) -> Pin<Box<dyn Future<Output = ()> + 'this + Send>>
-    where
-        for<'s> &'s mut <S>::Connection:
-            Executor<'s, Database = S>,
-        S: Database + SupportNamedBind,
-    {
-        Box::pin(async move {
+        &'this self,
+        data: &'this mut Self::Inner,
+        pool: Pool<Sqlite>,
+    ) -> impl Future<Output = ()> + Send + 'this {
+        async move {
             let mut st = stmt::SelectSt::init(
-                self.related_entity.table_name(),
+                T::table_name().to_string(),
             );
+
+            T::on_select(&mut st);
 
             let id = self.input;
-            st.where_(col("id".to_string()).eq(move || id));
+            st.where_(col("id").eq(id));
 
-            self.related_entity.on_select(&mut st);
-
-            use queries_for_sqlx::execute_no_cache::ExecuteNoCache;
-
-            let res = st
-                .fetch_one(&pool, |r| {
-                    let value =
-                        self.related_entity.from_row2(&r)?;
-                    Ok(value)
-                })
-                .await
-                .unwrap();
-
-            self.output = Some(json!({
-                "id": id,
-                "attributes": res
-            }));
-        })
-    }
-    fn on_insert(&self, st: &mut InsertStOne<'_, S>)
-    where
-        S: Database,
-    {
-        todo!()
-    }
-    fn schema_key(&self) -> &str {
-        self.schema_relation_key
-    }
-    fn take(&mut self) -> Option<Value> {
-        todo!()
-    }
-
-    fn from_row(&mut self, row: &<S>::Row)
-    where
-        S: Database,
-    {
-        todo!()
-    }
-    fn on_select(
-        &self,
-        st: &mut SelectSt<S, QuickQuery<'_>, PanicOnUnsafe>,
-    ) where
-        S: SupportNamedBind + Database,
-    {
-        todo!()
-    }
-}
-
-pub struct OneToManyInsert<S> {
-    pub input: Id,
-    pub schema_relation_key: &'static str,
-    pub relation_key: &'static str,
-    pub related_entity: Box<dyn DynEntity<S>>,
-    pub output: Option<Value>,
-}
-
-impl<S> DynRelation<S> for OneToManyInsert<S>
-where
-    Option<i64>: Type<S> + for<'d> Decode<'d, S>,
-    S: Database,
-    i64: Type<S> + for<'d> Encode<'d, S>,
-    for<'s> &'s str: ColumnIndex<S::Row>,
-{
-    fn take2(&mut self, _local_id: i64) -> Option<Value> {
-        take(&mut self.output)
-    }
-    fn sub_op2<'this>(
-        &'this mut self,
-        pool: Pool<S>,
-        _: i64,
-    ) -> Pin<Box<dyn Future<Output = ()> + 'this + Send>>
-    where
-        for<'s> &'s mut <S>::Connection:
-            Executor<'s, Database = S>,
-        S: Database + SupportNamedBind,
-    {
-        Box::pin(async move {
-            let mut st = stmt::SelectSt::init(
-                self.related_entity.table_name(),
-            );
-
-            // limit here used to work for many-to-many
-            // relations, where I add : where base_id = 1
-            // this is unnecessary because I have the id
-            // in input
-            warn!("refactor: depricate limit on insert");
-
-            self.related_entity.on_select(&mut st);
-
-            let id = self.input.id;
-            st.where_(col("id".to_owned()).eq(move || id));
-
-            let res = st
-                .fetch_one(&pool, |row| {
-                    let val = self
-                        .related_entity
-                        .from_row2(&row)
-                        .unwrap();
-
-                    Ok(val)
-                })
-                .await
-                .unwrap();
-
-            self.output = Some(json!({
-                "id": self.input.id,
-                "attributes": res
-            }));
-        })
-    }
-    fn on_insert(&self, st: &mut InsertStOne<'_, S>)
-    where
-        S: Database,
-    {
-        let input = self.input.id;
-
-        st.insert(self.relation_key, input);
-    }
-    fn schema_key(&self) -> &str {
-        self.schema_relation_key
-    }
-    fn take(&mut self) -> Option<Value> {
-        None // no-op
-    }
-
-    fn from_row(&mut self, row: &<S>::Row)
-    where
-        S: Database,
-    {
-        // no-op
-    }
-    fn on_select(
-        &self,
-        st: &mut SelectSt<S, QuickQuery, PanicOnUnsafe>,
-    ) where
-        S: SupportNamedBind + Database,
-    {
-        // no-op
-    }
-}
-
-pub struct OneToManyS<S> {
-    #[deprecated]
-    pub input: Value,
-    pub schema_relation_key: &'static str,
-    pub relation_key: &'static str,
-    pub related_entity: Box<dyn DynEntity<S>>,
-    pub value: Option<Value>,
-}
-
-impl<S> DynRelation<S> for OneToManyS<S>
-where
-    Option<i64>: Type<S> + for<'d> Decode<'d, S>,
-    S: Database,
-    i64: Type<S> + for<'d> Encode<'d, S>,
-    for<'s> &'s str: ColumnIndex<S::Row>,
-{
-    fn on_insert(&self, st: &mut InsertStOne<'_, S>)
-    where
-        S: Database,
-    {
-        let input = self
-            .input
-            .get("data")
-            .unwrap()
-            .get("id")
-            .unwrap()
-            .as_i64()
-            .unwrap();
-        st.insert(self.relation_key, input);
-        // panic!("{input}");
-        // self.related_entity.into_insert(input, st);
-    }
-    fn schema_key(&self) -> &str {
-        self.schema_relation_key
-    }
-    fn take(&mut self) -> Option<Value> {
-        Some(take(&mut self.value).into())
-    }
-    fn from_row(&mut self, row: &<S>::Row)
-    where
-        S: Database,
-    {
-        let id: Option<i64> = row.get(self.relation_key);
-        if let Some(id) = id {
-            let value = self
-                .related_entity
-                .from_row_scoped(row)
-                .unwrap();
-            self.value =
-                Some(json!({"id": id, "attributes": value}));
+            st.fetch_one(&pool, |row| {
+                *data = Some(T::from_row_scoped(&row));
+                Ok(())
+            })
+            .await;
         }
     }
+
+    fn sub_op1<'this>(
+        &'this self,
+        data: &'this mut Self::Inner,
+        pool: Pool<Sqlite>,
+    ) -> impl Future<Output = ()> + Send + 'this {
+        async {}
+    }
+
+    fn take(self, data: Self::Inner) -> Self::Output {
+        SimpleOutput {
+            id: self.input,
+            attr: data.unwrap(),
+        }
+    }
+}
+
+impl<B, T> UpdateOneWorker
+    for UpdateIdWorker<B, T, OptionalToMany, Option<i64>>
+where
+    B: Collection<Sqlite>,
+    T: Collection<Sqlite>,
+{
+    type Inner = Option<i64>;
+
+    type Output = Option<IdOutput<T>>;
+
+    fn on_update(
+        &self,
+        data: &mut Self::Inner,
+        st: &mut UpdateSt<Sqlite>,
+    ) {
+        let id = self.input.clone();
+        st.set(self.spec.foriegn_key.to_string(), id);
+    }
+
+    fn take(self, data: Self::Inner) -> Self::Output {
+        self.input.map(|id| IdOutput {
+            id,
+            _pd: PhantomData,
+        })
+    }
+}
+
+impl<F, T> GetAllWorker for ManyWorker<F, T, OptionalToMany>
+where
+    F: Collection<Sqlite>,
+    T: Collection<Sqlite>,
+{
+    type Inner = HashMap<i64, SimpleOutput<T>>;
+
+    type Output = Option<SimpleOutput<T>>;
+
     fn on_select(
         &self,
-        st: &mut SelectSt<S, QuickQuery, PanicOnUnsafe>,
-    ) where
-        S: SupportNamedBind + Database,
-    {
-        st.join(Join {
-            ty: join_type::Left,
-            on_table: self.related_entity.table_name(),
-            on_column: "id",
-            local_column: self.relation_key,
+        data: &mut Self::Inner,
+        st: &mut SelectSt<Sqlite>,
+    ) {
+        st.left_join(join {
+            on_table: T::table_name().to_string(),
+            on_column: "id".to_string(),
+            local_column: self.spec.foriegn_key.to_string(),
         });
 
-        st.select(col(self.relation_key.to_string()));
+        st.select(self.spec.foriegn_key.clone());
+        T::on_select(st);
+    }
 
-        self.related_entity.on_select_scoped(st);
+    fn from_row(&self, data: &mut Self::Inner, row: &SqliteRow) {
+        let id: Option<i64> =
+            row.get(self.spec.foriegn_key.as_str());
+        if let Some(id) = id {
+            let value = T::from_row_scoped(row);
+            let local_id = row.get("local_id");
+            data.insert(
+                local_id,
+                SimpleOutput { id, attr: value },
+            );
+        }
+    }
+
+    fn take(
+        &mut self,
+        current_id: i64,
+        data: &mut Self::Inner,
+    ) -> Self::Output {
+        data.remove(&current_id)
     }
 }

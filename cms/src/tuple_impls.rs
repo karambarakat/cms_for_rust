@@ -5,7 +5,7 @@ mod get_one_worker {
     };
     use sqlx::{sqlite::SqliteRow, Pool, Sqlite};
 
-    use crate::orm::{
+    use crate::{
         queries_bridge::SelectSt,
         relations::prelude::GetOneWorker,
     };
@@ -17,7 +17,7 @@ mod get_one_worker {
         fn on_select(
             &self,
             data: &mut Self::Inner,
-            st: &mut SelectSt,
+            st: &mut SelectSt<Sqlite>,
         ) {
         }
 
@@ -49,7 +49,7 @@ mod get_one_worker {
         fn on_select(
             &self,
             data: &mut Self::Inner,
-            st: &mut SelectSt,
+            st: &mut SelectSt<Sqlite>,
         ) {
             self.0.on_select(&mut data.0, st);
         }
@@ -86,7 +86,7 @@ mod get_one_worker {
         fn on_select(
             &self,
             data: &mut Self::Inner,
-            st: &mut SelectSt,
+            st: &mut SelectSt<Sqlite>,
         ) {
             self.0.on_select(&mut data.0, st);
             self.1.on_select(&mut data.1, st);
@@ -126,7 +126,7 @@ mod get_one_worker {
         fn on_select(
             &self,
             data: &mut Self::Inner,
-            st: &mut SelectSt,
+            st: &mut SelectSt<Sqlite>,
         ) {
             self.0.on_select(&mut data.0, st);
             self.1.on_select(&mut data.1, st);
@@ -163,7 +163,12 @@ mod get_one_worker {
     }
 }
 mod insert_one_worker {
-    use crate::orm::{operations::insert_one::InsertOneWorker, queries_bridge::InsertSt};
+    use sqlx::Sqlite;
+
+    use crate::{
+        operations::insert_one::InsertOneWorker,
+        queries_bridge::InsertSt,
+    };
 
     impl InsertOneWorker for () {
         type Inner = ();
@@ -173,7 +178,7 @@ mod insert_one_worker {
         fn on_insert(
             &self,
             data: &mut Self::Inner,
-            st: &mut InsertSt,
+            st: &mut InsertSt<Sqlite>,
         ) {
         }
 
@@ -215,7 +220,7 @@ mod insert_one_worker {
         fn on_insert(
             &self,
             data: &mut Self::Inner,
-            st: &mut InsertSt,
+            st: &mut InsertSt<Sqlite>,
         ) {
             self.0.on_insert(&mut data.0, st);
         }
@@ -262,7 +267,7 @@ mod insert_one_worker {
         fn on_insert(
             &self,
             data: &mut Self::Inner,
-            st: &mut InsertSt,
+            st: &mut InsertSt<Sqlite>,
         ) {
             self.0.on_insert(&mut data.0, st);
             self.1.on_insert(&mut data.1, st);
@@ -312,7 +317,7 @@ mod insert_one_worker {
         fn on_insert(
             &self,
             data: &mut Self::Inner,
-            st: &mut InsertSt,
+            st: &mut InsertSt<Sqlite>,
         ) {
             self.0.on_insert(&mut data.0, st);
             self.1.on_insert(&mut data.1, st);
@@ -371,7 +376,7 @@ mod insert_one_worker {
         fn on_insert(
             &self,
             data: &mut Self::Inner,
-            st: &mut InsertSt,
+            st: &mut InsertSt<Sqlite>,
         ) {
             self.0.on_insert(&mut data.0, st);
             self.1.on_insert(&mut data.1, st);
@@ -418,17 +423,21 @@ mod insert_one_worker {
     }
 }
 mod get_query {
-    use crate::orm::{queries::Filters, queries_bridge::SelectSt};
+    use sqlx::Sqlite;
+
+    use crate::{
+        filters::Filters, queries_bridge::SelectSt,
+    };
 
     impl<C> Filters<C> for () {
-        fn on_select(self, st: &mut SelectSt) {}
+        fn on_select(self, st: &mut SelectSt<Sqlite>) {}
     }
 
     impl<C, R1> Filters<C> for (R1,)
     where
         R1: Filters<C>,
     {
-        fn on_select(self, st: &mut SelectSt) {
+        fn on_select(self, st: &mut SelectSt<Sqlite>) {
             self.0.on_select(st);
         }
     }
@@ -438,7 +447,7 @@ mod get_query {
         R1: Filters<C>,
         R2: Filters<C>,
     {
-        fn on_select(self, st: &mut SelectSt) {
+        fn on_select(self, st: &mut SelectSt<Sqlite>) {
             self.0.on_select(st);
             self.1.on_select(st);
         }
@@ -450,7 +459,7 @@ mod get_query {
         R2: Filters<C>,
         R3: Filters<C>,
     {
-        fn on_select(self, st: &mut SelectSt) {
+        fn on_select(self, st: &mut SelectSt<Sqlite>) {
             self.0.on_select(st);
             self.1.on_select(st);
             self.2.on_select(st);
@@ -464,7 +473,7 @@ mod get_query {
         R3: Filters<C>,
         R4: Filters<C>,
     {
-        fn on_select(self, st: &mut SelectSt) {
+        fn on_select(self, st: &mut SelectSt<Sqlite>) {
             self.0.on_select(st);
             self.1.on_select(st);
             self.2.on_select(st);
@@ -480,7 +489,7 @@ mod get_query {
         R4: Filters<C>,
         R5: Filters<C>,
     {
-        fn on_select(self, st: &mut SelectSt) {
+        fn on_select(self, st: &mut SelectSt<Sqlite>) {
             self.0.on_select(st);
             self.1.on_select(st);
             self.2.on_select(st);

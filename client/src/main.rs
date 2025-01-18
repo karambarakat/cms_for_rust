@@ -1,39 +1,32 @@
-use axum::{http::StatusCode, routing::any, Router};
+use axum::Router;
 use cms_for_rust::{
-    auth,
-    axum_router::AxumRouter,
-    collections, collections_editor,
-    entities::define as entity,
-    hmr::{self, dyn_entities_router, DynEntitiesRouter},
-    relations::define as relations,
-    schema, schema_def,
+    auth::auth_router,
+    axum_router::collections_router,
+    cms_macros::{relation, standard_collection},
+    collections_editor::admin_router,
+    migration2::run_migration,
 };
+use sqlx::{Pool, Sqlite};
 
-schema! {
-    db = "sqlx::Sqlite",
-}
-
-#[entity]
+#[standard_collection]
 pub struct Todo {
     pub title: String,
     pub done: bool,
     pub description: Option<String>,
 }
 
-#[entity]
+#[standard_collection]
 pub struct Category {
     pub title: String,
 }
 
-#[entity]
+#[standard_collection]
 pub struct Tag {
     pub title: String,
 }
 
-relations! {
-    optional_to_many Todo Category;
-    many_to_many Todo Tag;
-}
+relation! { optional_to_many Todo Category }
+relation! { many_to_many Todo Tag }
 
 #[tokio::main]
 async fn main() {
@@ -41,28 +34,17 @@ async fn main() {
         .with_max_level(tracing::Level::DEBUG)
         .init();
 
-    let pool =
-        sqlx::Pool::<sqlx::Sqlite>::connect("sqlite::memory:")
-            .await
-            .unwrap();
+    let pool = Pool::<Sqlite>::connect("sqlite::memory:")
+        .await
+        .unwrap();
 
-    cms_for_rust::migration::migrate(pool.clone()).await;
-
-    if cfg!(feature = "HMR") {
-        let app = "nest dyn_router::<(Todo, ";
-    } else {
-        let app = "nest router";
-    }
+    run_migration(pool.clone()).await.unwrap();
 
     let app = Router::new()
-        .nest("/todo", Todo::router())
-        .nest("/collections", collections::router())
-        .nest(
-            "/collections_editor",
-            collections_editor::router(pool.clone()),
-        )
-        .with_state(pool.clone())
-        .route_layer(auth::layer());
+        .nest("/collectinos", collections_router())
+        .nest("/admin", admin_router())
+        .nest("/auth", auth_router())
+        .with_state(pool.clone());
 
     let listner = tokio::net::TcpListener::bind("0.0.0.0:3000")
         .await

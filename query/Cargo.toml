@@ -40,6 +40,10 @@ export_inner_executable = []
 waiting_specialization = []
 build_statments = []
 query_v2 = []
+# this allows you to implement the trait `Accept` 
+# for larger set of types, this comes at the cost of
+# having to use `bind` function for `impl Encode` types
+flexible_accept_impl = []
 
 
 

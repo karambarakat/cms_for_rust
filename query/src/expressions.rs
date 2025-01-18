@@ -4,8 +4,8 @@ use aliasing::HasLocal;
 use sqlx::Database;
 
 use crate::{
-    ident_safety::IdentSafety, Accept, Constraint, Query,
-    SchemaColumn, SelectItem, WhereItem,
+    ident_safety::IdentSafety, Accept, BindItem, Constraint,
+    Query, SchemaColumn, SelectItem,
 };
 
 pub struct Column<I: IdentSafety> {
@@ -40,6 +40,7 @@ impl<I: IdentSafety> ForeignColumn<I> {
         }
     }
 }
+
 impl<I: IdentSafety> Column<I> {
     pub fn eq<T>(self, value: T) -> ColumnEq<Self, T, I> {
         ColumnEq {
@@ -50,16 +51,16 @@ impl<I: IdentSafety> Column<I> {
     }
 }
 
-impl<S, Col, I: IdentSafety, Q: Query<S>, T> WhereItem<S, Q, I>
-    for ColumnEq<Col, T, I>
+impl<S, Col, Q: Query, T> BindItem<S, Q>
+    for ColumnEq<Col, T, Q::IdentSafety>
 where
-    Col: SelectItem<S, I>,
-    Q: Accept<T, S>,
+    Col: SelectItem<S, Q::IdentSafety> + 'static,
+    Q: Accept<T, S> + 'static,
 {
-    fn where_item(
+    fn bind_item(
         self,
         ctx: &mut Q::Context1,
-    ) -> impl FnOnce(&mut Q::Context2) -> String {
+    ) -> impl FnOnce(&mut Q::Context2) -> String + 'static {
         let column = self.column;
         let value = Q::accept(self.value, ctx);
         move |ctx| {
@@ -203,22 +204,24 @@ pub mod aliasing {
 
 pub struct IsNullWhereItem<T, S>(T, PhantomData<S>);
 
-impl<S, Q: Query<S>, I, T: SelectItem<S, I>> WhereItem<S, Q, I>
-    for IsNullWhereItem<T, S>
+impl<S, Q, T> BindItem<S, Q> for IsNullWhereItem<T, S>
+where
+    Q: Query,
+    T: SelectItem<S, Q::IdentSafety> + 'static,
 {
-    fn where_item(
+    fn bind_item(
         self,
         _ctx: &mut Q::Context1,
-    ) -> impl FnOnce(&mut Q::Context2) -> String {
+    ) -> impl FnOnce(&mut Q::Context2) -> String + 'static {
         |_ctx2| format!("{} IS NULL", self.0.select_item())
     }
 }
 pub struct IsNotNullWhereItem<T, S>(T, PhantomData<S>);
 
-impl<S, Q: Query<S>, I, T: SelectItem<S, I>> WhereItem<S, Q, I>
+impl<S, Q: Query, I, T: SelectItem<S, I>> BindItem<S, Q>
     for IsNotNullWhereItem<T, S>
 {
-    fn where_item(
+    fn bind_item(
         self,
         _ctx: &mut Q::Context1,
     ) -> impl FnOnce(&mut Q::Context2) -> String {
@@ -248,10 +251,8 @@ impl<S, I> SelectItem<S, I> for VerbatimNoSanitize {
     }
 }
 
-impl<S, Q: Query<S>, I> WhereItem<S, Q, I>
-    for VerbatimNoSanitize
-{
-    fn where_item(
+impl<S, Q: Query, I> BindItem<S, Q> for VerbatimNoSanitize {
+    fn bind_item(
         self,
         _ctx: &mut Q::Context1,
     ) -> impl FnOnce(&mut Q::Context2) -> String {
@@ -331,12 +332,14 @@ impl ForiegnKey {
     }
 }
 
-impl<S, Q: Query<S>> Constraint<S, Q> for ForiegnKey {
-    fn constraint(
+impl Constraint for ForiegnKey {}
+impl<S, Q: Query> BindItem<S, Q> for ForiegnKey {
+    fn bind_item(
         self,
-        _: &mut Q::Context1,
-    ) -> impl FnOnce(&mut Q::Context2) -> String {
-        move |_| {
+        ctx: &mut <Q as Query>::Context1,
+    ) -> impl FnOnce(&mut <Q as Query>::Context2) -> String + 'static
+    {
+        move |ctx2| {
             format!(
                 "FOREIGN KEY ({}) REFERENCES {}({}){}",
                 self.column.expect("should have set a column on foreign_key"), 
@@ -354,15 +357,17 @@ impl<S, Q: Query<S>> Constraint<S, Q> for ForiegnKey {
 
 pub struct ColumnType<T>(PhantomData<T>);
 
-impl<Q: Query<S>, S, T> SchemaColumn<S, Q> for ColumnType<T>
+impl<T> SchemaColumn for ColumnType<T> {}
+impl<S, Q, T> BindItem<S, Q> for ColumnType<T>
 where
     S: Database,
     T: sqlx::Type<S>,
+    Q: Query,
 {
-    fn column(
+    fn bind_item(
         self,
-        _: &mut Q::Context1,
-    ) -> impl FnOnce(&mut Q::Context2) -> String {
+        ctx: &mut Q::Context1,
+    ) -> impl FnOnce(&mut Q::Context2) -> String + 'static {
         use sqlx::TypeInfo;
         let ty = T::type_info();
         let ty = ty.name().to_string();
@@ -375,15 +380,29 @@ pub struct DefaultConstraint<ToBeAccepted, T>(
     PhantomData<T>,
 );
 
-impl<S, ToBeAccepted, T, Q> SchemaColumn<S, Q>
+// impl<S, ToBeAccepted, T, Q, I> BindItem<S, Q, I>
+//     for DefaultConstraint<ToBeAccepted, T>
+// where
+//     Q: Accept<ToBeAccepted, S>,
+// {
+//     fn column(
+//         self,
+//         ctx: &mut Q::Context1,
+//     ) -> impl FnOnce(&mut Q::Context2) -> String {
+//         let save = Q::accept(self.0, ctx);
+//         |ctxr| format!("DEFAULT {}", save(ctxr))
+//     }
+// }
+impl<A, T> Constraint for DefaultConstraint<A, T> {}
+impl<S, ToBeAccepted, T, Q> BindItem<S, Q>
     for DefaultConstraint<ToBeAccepted, T>
 where
     Q: Accept<ToBeAccepted, S>,
 {
-    fn column(
+    fn bind_item(
         self,
         ctx: &mut Q::Context1,
-    ) -> impl FnOnce(&mut Q::Context2) -> String {
+    ) -> impl FnOnce(&mut Q::Context2) -> String + 'static {
         let save = Q::accept(self.0, ctx);
         |ctxr| format!("DEFAULT {}", save(ctxr))
     }
@@ -391,68 +410,64 @@ where
 
 pub struct NotNull;
 
-impl<S, Q: Query<S>> SchemaColumn<S, Q> for NotNull
+impl SchemaColumn for NotNull {}
+impl<S, Q: Query> BindItem<S, Q> for NotNull
 where
     S: Database,
 {
-    fn column(
+    fn bind_item(
         self,
         _: &mut Q::Context1,
-    ) -> impl FnOnce(&mut Q::Context2) -> String {
+    ) -> impl FnOnce(&mut Q::Context2) -> String + 'static {
         move |_| "NOT NULL".to_string()
     }
 }
 
 pub struct Or<T>(Vec<T>);
 
-impl<S, Q, I, T> WhereItem<S, Q, I> for Or<T>
-where
-    T: 'static,
-    S: 'static,
-    Q: 'static,
-    I: 'static,
-    Q::Context1: 'static,
-
-    Q: Query<S>,
-    T: WhereItem<S, Q, I>,
-{
-    fn where_item(
-        self,
-        ctx: &mut <Q as Query<S>>::Context1,
-    ) -> impl FnOnce(&mut <Q as Query<S>>::Context2) -> String
-    {
-        // let maps: Vec<
-        //     Box<dyn FnOnce(&mut <Q as Query<S>>::Context2) -> String>,
-        // > = self
-        //     .0
-        //     .into_iter()
-        //     .map(|e| {
-        //         return Box::new(e.where_item(ctx));
-        //     })
-        //     .collect();
-        let mut maps = vec![];
-        for each in self.0 {
-            // SAFETY: I think I the return of where_item is 'static
-            // or maybe I should make corrections to the trait
-            let res = each
-                .where_item(unsafe { &mut *(ctx as *mut _) });
-            // let res = each
-            //     .where_item(ctx);
-            let res: Box<
-                dyn FnOnce(
-                    &mut <Q as Query<S>>::Context2,
-                ) -> String,
-            > = Box::new(res);
-            maps.push(res);
-        }
-        |ctx| {
-            maps.into_iter()
-                .map(|e| e(ctx))
-                .collect::<Vec<_>>()
-                .join(" OR ")
-        }
-    }
-}
+// impl<S, Q, T> BindItem<S, Q> for Or<T>
+// where
+//     T: 'static,
+//     S: 'static,
+//     Q: 'static,
+//     Q::Context1: 'static,
+//     Q: Query,
+//     T: BindItem<S, Q>,
+// {
+//     fn bind_item(
+//         self,
+//         ctx: &mut <Q as Query>::Context1,
+//     ) -> impl FnOnce(&mut <Q as Query>::Context2) -> String + 'static
+//     {
+//         let mut maps = vec![];
+//         for each in self.0 {
+//             // SAFETY:
+//             // say ctx: `&'ctx mut Q::Context1` and `Q::Context1: 'ctx`
+//             //
+//             // bind_item retrun is 'static
+//             // that means that when bind_item returns I'm guaranteed to
+//             // not hold 'ctx and I can create new unique mut ref
+//             //
+//             // I think my reasoning is correct but I don't know why
+//             // rust is not allowing this without unsafe
+//             let res =
+//                 each.bind_item(unsafe { &mut *(ctx as *mut _) });
+//
+//             let res: Box<
+//                 dyn FnOnce(
+//                     &mut <Q as Query>::Context2,
+//                 ) -> String,
+//             > = Box::new(res);
+//             maps.push(res);
+//         }
+//         |ctx| {
+//             maps.into_iter()
+//                 .map(|e| e(ctx))
+//                 .collect::<Vec<_>>()
+//                 .join(" OR ")
+//         }
+//     }
+// }
 
 pub mod exports {
     pub use super::aliasing::SelectHelpers;

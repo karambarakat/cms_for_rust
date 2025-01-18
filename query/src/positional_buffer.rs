@@ -7,7 +7,7 @@ use crate::{
     ident_safety::PanicOnUnsafe, sql_part::{
         AcceptToSqlPart, ColumnToSqlPart, ConstraintToSqlPart,
         ToSqlPart, WhereItemToSqlPart,
-    }, Accept, Constraint, Query, SchemaColumn, WhereItem
+    }, Accept, Constraint, Query, SchemaColumn, BindItem
 };
 
 mod sealing {
@@ -110,7 +110,7 @@ impl<T, S> ToSqlPart<PositionalStaticBuffer, S>
     for WhereItemToSqlPart<T>
 where
     S: Database,
-    T: WhereItem<S, PositionalStaticBuffer, PanicOnUnsafe> + 'static,
+    T: BindItem<S, PositionalStaticBuffer, PanicOnUnsafe> + 'static,
 {
     fn to_sql_part(
         self,

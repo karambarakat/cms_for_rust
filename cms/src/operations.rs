@@ -1,11 +1,13 @@
 use std::marker::PhantomData;
 
 use serde::Serialize;
+use sqlx::Sqlite;
 
 use crate::tuple_index::tuple_as_map::TupleElementKey;
 
-use super::Collection;
+use crate::traits::Collection;
 
+pub mod delete_one;
 pub mod insert_one;
 pub mod select_many;
 pub mod select_one;
@@ -24,15 +26,15 @@ pub struct IdOutput<C> {
     pub _pd: PhantomData<C>,
 }
 
-impl<C: Collection> TupleElementKey for SimpleOutput<C> {
+impl<C: Collection<Sqlite>> TupleElementKey for SimpleOutput<C> {
     fn key() -> &'static str {
-        C::table_name1()
+        C::table_name()
     }
 }
 
-impl<C: Collection> TupleElementKey for IdOutput<C> {
+impl<C: Collection<Sqlite>> TupleElementKey for IdOutput<C> {
     fn key() -> &'static str {
-        C::table_name1()
+        C::table_name()
     }
 }
 
@@ -50,25 +52,23 @@ mod test {
 
     use crate::{
         client_example::{Category, Partial, Tag, Todo},
-        orm::{
-            dynamic_schema::COLLECTIONS,
-            operations::{
-                insert_one::insert_one_dynamic,
-                select_many::get_all_dynamic,
-                select_one::{
-                    get_one, get_one_dynamic, GetOneOutput,
-                    InputGetOne,
-                },
-                IdOutput, SimpleOutput,
+        dynamic_schema::COLLECTIONS,
+        operations::{
+            insert_one::insert_one_dynamic,
+            select_many::get_all_dynamic,
+            select_one::{
+                get_one, get_one_dynamic, GetOneOutput,
+                InputGetOne,
             },
-            relations::{link_id, relation},
-            Collection, Update,
+            IdOutput, SimpleOutput,
         },
+        relations::{link_id, relation},
         tuple_index::TupleAsMap,
     };
 
     use super::{
-        insert_one::insert_one, update_one::update_one_dynmaic,
+        delete_one::delete_one_dynmaic, insert_one::insert_one,
+        update_one::update_one_dynmaic,
     };
 
     async fn init() -> Pool<Sqlite> {
@@ -84,7 +84,7 @@ mod test {
                 done BOOLEAN NOT NULL,
                 description TEXT,
                 category_id INTEGER,
-                FOREIGN KEY (category_id) REFERENCES Category (id)
+                FOREIGN KEY (category_id) REFERENCES Category (id) ON DELETE SET NULL
             );
             CREATE TABLE Tag (
                 id INTEGER PRIMARY KEY,
@@ -99,8 +99,8 @@ mod test {
                 todo_id INTEGER NOT NULL,
                 tag_id INTEGER NOT NULL,
                 PRIMARY KEY (todo_id, tag_id),
-                FOREIGN KEY (todo_id) REFERENCES Todo (id),
-                FOREIGN KEY (tag_id) REFERENCES Tag (id)
+                FOREIGN KEY (todo_id) REFERENCES Todo (id) ON DELETE CASCADE,
+                FOREIGN KEY (tag_id) REFERENCES Tag (id) ON DELETE CASCADE
             );
 
             INSERT INTO Tag (tag_title) VALUES 
@@ -145,24 +145,47 @@ mod test {
             .with_max_level(tracing::Level::DEBUG)
             .init();
 
-        let res: Vec<(i64, i64, String)> = sqlx::query_as(
-            "SELECT 
-(SELECT COUNT(*) FROM Todo) as count,
-id, title FROM Todo",
+        test_get_one(db.clone()).await;
+
+        test_get_all(db.clone()).await;
+
+        test_insert_one(db.clone()).await;
+
+        test_update_one(db.clone()).await;
+
+        test_delete_one(db.clone()).await;
+    }
+
+    async fn test_delete_one(db: Pool<Sqlite>) {
+        let res = delete_one_dynmaic(
+            State(db.clone()),
+            Path("todo".to_string()),
+            Json(
+                from_value(json!({
+                    "id": 2,
+                    "return_attr": true,
+                    "return_residual": ["category"]
+                }))
+                .unwrap(),
+            ),
         )
-        .fetch_all(&db)
         .await
         .unwrap();
 
-        panic!("{:?}", res);
-
-        // test_get_one(db.clone()).await;
-
-        // test_insert_one(db.clone()).await;
-
-        // test_update_one(db.clone()).await;
-
-        // test_get_all(db.clone()).await;
+        pretty_assertions::assert_eq!(
+            serde_json::to_value(res.0).unwrap(),
+            json! {{
+                "attr": {
+                    "description": null,
+                    "done": false,
+                    "title": "todo_2",
+                },
+                "id": 2,
+                "relations": {
+                    "category": 3
+                }
+            }}
+        );
     }
 
     async fn test_get_all(db: Pool<Sqlite>) {
@@ -250,6 +273,54 @@ id, title FROM Todo",
                     // },
                 ],
             }}
+        );
+    }
+
+    async fn test_deep_populate(db: Pool<Sqlite>) {
+        let res = get_one::<Todo>()
+            .link_data(
+                // in theory you can do multiple deep relations and/or go deeper
+                // for now this is only supported for one-time of
+                // C1 --optional_to_many--> C2 --optional_to_many_inverse--> C1
+                relation::<Category>().deep_populate::<Todo>(),
+            )
+            .exec_op(db.clone())
+            .await;
+
+        pretty_assertions::assert_eq!(
+            res,
+            Some(GetOneOutput {
+                id: 1,
+                attr: Todo {
+                    title: "todo_1".to_string(),
+                    done: true,
+                    description: None,
+                },
+                links: TupleAsMap((Some(GetOneOutput {
+                    id: 3,
+                    attr: Category {
+                        cat_title: "category_3".to_string()
+                    },
+                    links: (vec![
+                        SimpleOutput {
+                            id: 1,
+                            attr: Todo {
+                                title: "todo_1".to_string(),
+                                done: true,
+                                description: None,
+                            },
+                        },
+                        SimpleOutput {
+                            id: 2,
+                            attr: Todo {
+                                title: "todo_2".to_string(),
+                                done: false,
+                                description: None,
+                            },
+                        },
+                    ],)
+                }),))
+            })
         );
     }
 
@@ -429,7 +500,7 @@ id, title FROM Todo",
                     },
                     "relation": {
                         "category": {
-                            "set_id_to_null": 3
+                            "set_id_to_and_populate": 3
                         },
                         "tag": {
                             "set_id_to_and_populate": [1,2]

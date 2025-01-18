@@ -4,14 +4,13 @@ import { useNavigate, type DocumentHead } from "@builder.io/qwik-city";
 export default component$(() => {
     const nav = useNavigate();
     useVisibleTask$(() => {
-        nav("/entity/todo")
+        if (localStorage.getItem("token") === null) {
+            nav("/auth/login")
+        }
     });
 
     return <div>
         redirect
-        <button class ="block underline text-blue-500" onClick$={() => {
-            nav("/entity/todo")
-        }}>if not redireced, click here</button>
     </div>
 });
 

@@ -9,7 +9,7 @@ HMR = []
 
 [dependencies]
 tower = { version = "0.5.2", features = ["util"] }
-axum = "0.7.9"
+axum = "0.8.1"
 cms_for_rust = { path = "../cms" }
 queries_for_sqlx = { path = "../query" }
 serde = { version = "1.0.215", features = ["derive"] }

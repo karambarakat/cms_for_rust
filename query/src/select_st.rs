@@ -1,26 +1,23 @@
+use crate::execute_no_cache::ExecuteNoCacheUsingSelectTrait;
+use crate::ident_safety::{self, PanicOnUnsafe};
+use crate::{
+    Accept, AcceptColIdent, IdentSafety, Query, QueryHandlers,
+    Statement,
+};
+use crate::{AcceptTableIdent, BindItem};
 use std::marker::PhantomData;
 
-use joins::Join;
-
-use crate::execute_no_cache::ExecuteNoCacheUsingSelectTrait;
-use crate::ident_safety::{IdentSafety, PanicOnUnsafe};
-use crate::sql_part::{
-    AcceptToSqlPart, ToSqlPart, WhereItemToSqlPart,
-};
-use crate::{
-    Accept, InitStatement, Query, Statement, TakeParts,
-};
-use crate::{SelectItem, WhereItem};
-
-pub struct SelectSt<S, Q: Query<S>, I: IdentSafety> {
-    pub(crate) select_list: Vec<String>,
+pub struct SelectSt<S, Q: Query, I: IdentSafety> {
+    pub(crate) select_list:
+        Vec<(Option<I::Table>, I::Column, Option<&'static str>)>,
     pub(crate) where_clause: Vec<Q::SqlPart>,
-    pub(crate) joins: Vec<Join<I>>,
-    pub(crate) order_by: Vec<(&'static str, bool)>,
+    pub(crate) joins: Vec<(&'static str, join)>,
+    pub(crate) order_by: Vec<(I::Column, bool)>,
     pub(crate) limit: Option<Q::SqlPart>,
     pub(crate) shift: Option<Q::SqlPart>,
     pub(crate) ctx: Q::Context1,
     pub(crate) from: I::Table,
+    pub(crate) ident_safety: I,
     pub(crate) _sqlx: PhantomData<(S, I)>,
 }
 
@@ -28,25 +25,28 @@ impl<S, Q, I> ExecuteNoCacheUsingSelectTrait
     for SelectSt<S, Q, I>
 where
     I: IdentSafety,
-    Q: Query<S>,
+    Q: Query,
 {
 }
 
-impl<S, Q> InitStatement<Q> for SelectSt<S, Q, PanicOnUnsafe>
-where
-    Q: Query<S>,
-{
-    type Init = String;
-    fn init(from: String) -> Self {
+impl<S, Q: Query> SelectSt<S, Q, Q::IdentSafety> {
+    pub fn init<T: AsRef<str>>(from: T) -> Self
+    where
+        Q::IdentSafety: AcceptTableIdent<T>,
+    {
+        let ident_safety = Q::IdentSafety::init(Some(&from));
         SelectSt {
             select_list: Default::default(),
             where_clause: Default::default(),
-            joins: Default::default(),
+            joins: vec![],
             order_by: Default::default(),
             limit: Default::default(),
             shift: Default::default(),
             ctx: Default::default(),
-            from,
+            from: <Q::IdentSafety as AcceptTableIdent<T>>::into_table(
+                from,
+            ),
+            ident_safety,
             _sqlx: PhantomData,
         }
     }
@@ -54,7 +54,7 @@ where
 
 impl<S, Q, I> Statement<S, Q> for SelectSt<S, Q, I>
 where
-    Q: Query<S>,
+    Q: Query<IdentSafety = I>,
     I: IdentSafety,
 {
     fn deref_ctx(&self) -> &Q::Context1 {
@@ -64,14 +64,14 @@ where
         &mut self.ctx
     }
 
-    fn _build(self) -> (String, <Q as Query<S>>::Output) {
+    fn _build(self) -> (String, Q::Output) {
         self.build()
     }
 }
 
 impl<S, Q, I> SelectSt<S, Q, I>
 where
-    Q: Query<S>,
+    Q: Query<IdentSafety = I>,
     I: IdentSafety,
 {
     pub fn build(self) -> (String, Q::Output) {
@@ -88,7 +88,15 @@ where
                 if index != 0 {
                     str.push_str(", ");
                 }
-                str.push_str(&item);
+                if let Some(table) = item.0 {
+                    str.push_str(table.as_ref());
+                    str.push_str(".");
+                }
+                str.push_str(item.1.as_ref());
+                if let Some(alias) = item.2 {
+                    str.push_str(" AS ");
+                    str.push_str(alias);
+                }
             }
 
             str.push_str(" FROM ");
@@ -97,12 +105,12 @@ where
             for join in self.joins.into_iter() {
                 let join = format!(
                     " {} {} ON {}.{} = {}.{}",
-                    join.ty.to_string(),
-                    join.on_table.as_ref(),
-                    join.on_table.as_ref(),
-                    join.on_column.as_ref(),
+                    join.0,
+                    join.1.on_table,
+                    join.1.on_table,
+                    join.1.on_column,
                     self.from.as_ref(),
-                    join.local_column.as_ref(),
+                    join.1.local_column,
                 );
                 str.push_str(&join);
             }
@@ -135,7 +143,7 @@ where
                     if index != 0 {
                         str.push_str(", ");
                     }
-                    str.push_str(by);
+                    str.push_str(by.as_ref());
                     if !asc {
                         str.push_str(" DESC");
                     }
@@ -159,42 +167,78 @@ where
         })
     }
 
-    pub fn select(
+    pub fn select_aliased<T, C>(
         &mut self,
-        item: impl SelectItem<S, I> + 'static,
-    ) {
-        self.select_list.push(item.select_item());
+        table: T,
+        item: C,
+        alias: &'static str,
+    ) where
+        Q::IdentSafety: AcceptTableIdent<T>,
+        Q::IdentSafety: AcceptColIdent<C>,
+    {
+        let i = Q::IdentSafety::into_col(item);
+        let t = Q::IdentSafety::into_table(table);
+        self.select_list.push((Some(t), i, Some(alias)));
+    }
+    pub fn select_scoped<T, C>(&mut self, table: T, item: C)
+    where
+        Q::IdentSafety: AcceptTableIdent<T>,
+        Q::IdentSafety: AcceptColIdent<C>,
+    {
+        let i = Q::IdentSafety::into_col(item);
+        let t = Q::IdentSafety::into_table(table);
+        self.select_list.push((Some(t), i, None));
+    }
+    pub fn select<T>(&mut self, item: T)
+    where
+        Q::IdentSafety: AcceptColIdent<T>,
+    {
+        let i = Q::IdentSafety::into_col(item);
+        self.select_list.push((None, i, None));
     }
 
-    pub fn join(&mut self, join: Join<I>) {
+    pub fn left_join(&mut self, j: join) {
         if self
             .joins
             .iter()
-            .find(|e| {
-                e.on_table.as_ref() == join.on_table.as_ref()
-            })
+            .find(|e| e.1.on_table == j.on_table)
             .is_some()
         {
             panic!(
                 "table {} has been joined already",
-                join.on_table.as_ref()
+                j.on_table
             );
         }
-
-        self.joins.push(join);
+        self.joins.push(("LEFT JOIN", j));
     }
+
+    // pub fn join(&mut self, join: Join<I>) {
+    //     if self
+    //         .joins
+    //         .iter()
+    //         .find(|e| {
+    //             e.on_table.as_ref() == join.on_table.as_ref()
+    //         })
+    //         .is_some()
+    //     {
+    //         panic!(
+    //             "table {} has been joined already",
+    //             join.on_table.as_ref()
+    //         );
+    //     }
+    //
+    //     self.joins.push(join);
+    // }
 
     pub fn offset<T>(&mut self, shift: T)
     where
         Q: Accept<T, S>,
-        AcceptToSqlPart<T>: ToSqlPart<Q, S>,
     {
         if self.shift.is_some() {
             panic!("limit has been set already");
         }
 
-        let limit =
-            AcceptToSqlPart(shift).to_sql_part(&mut self.ctx);
+        let limit = Q::handle_accept(shift, &mut self.ctx);
 
         self.shift = Some(limit);
     }
@@ -202,71 +246,42 @@ where
     pub fn limit<T>(&mut self, limit: T)
     where
         Q: Accept<T, S>,
-        AcceptToSqlPart<T>: ToSqlPart<Q, S>,
     {
         if self.limit.is_some() {
             panic!("limit has been set already");
         }
 
-        let limit =
-            AcceptToSqlPart(limit).to_sql_part(&mut self.ctx);
+        let limit = Q::handle_accept(limit, &mut self.ctx);
 
         self.limit = Some(limit);
     }
 
-    pub fn order_by(&mut self, by: &'static str, asc: bool) {
-        self.order_by.push((by, asc));
+    pub fn order_by<T>(&mut self, by: T, asc: bool)
+    where
+        Q::IdentSafety: AcceptColIdent<T>,
+    {
+        self.order_by.push((Q::IdentSafety::into_col(by), asc));
     }
 
     pub fn where_<T>(&mut self, item: T)
     where
-        T: WhereItem<S, Q, I> + 'static,
-        WhereItemToSqlPart<T>: ToSqlPart<Q, S>,
+        T: BindItem<S, Q> + 'static,
+        Q: QueryHandlers<S>,
     {
-        let item =
-            WhereItemToSqlPart(item).to_sql_part(&mut self.ctx);
+        let item = Q::handle_bind_item(item, &mut self.ctx);
 
         self.where_clause.push(item);
     }
-    // pub fn where_(
-    //     &mut self,
-    //     item: impl WhereItem<S, Q> + 'static,
-    // )
-    // {
-    //     let item = Q::handle_where_item(item, &mut self.ctx);
-    //
-    //     self.where_clause.push(item);
-    // }
 }
 
-#[deprecated = "in favor of AcceptToSqlPart"]
-pub struct HandleAccept<T, S, Q>(pub T, pub PhantomData<(S, Q)>);
-
-/// this trait will be removed once I figure out universal
-/// way to accept all Q: Accept<S, T>
-#[deprecated = "in favor of AcceptToSqlPart"]
-pub trait HandleAcceptIsWorking {
-    type SqlPart;
-    type Ctx;
-    fn to_sql_part(self, ctx: &mut Self::Ctx) -> Self::SqlPart;
-}
-
-pub mod joins {
-    use crate::ident_safety::IdentSafety;
-
-    pub struct Join<I: IdentSafety> {
-        pub ty: &'static str,
-        pub on_table: I::Table,
-        pub on_column: I::Column,
-        pub local_column: I::Column,
-    }
+#[allow(non_camel_case_types)]
+pub struct join {
+    pub on_table: String,
+    pub on_column: String,
+    pub local_column: String,
 }
 
 pub mod order_by {
     pub const ASC: bool = true;
     pub const DESC: bool = false;
-}
-
-pub mod exports {
-    pub use super::joins::Join;
 }

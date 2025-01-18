@@ -1,17 +1,15 @@
 use std::{fmt::Display, marker::PhantomData};
 
-use sqlx::Database;
+use sqlx::{database::HasArguments, Database};
 
 use crate::{
     execute_no_cache::ExecuteNoCacheUsingSelectTrait,
-    sql_part::{
-        ColumnToSqlPart, ConstraintToSqlPart, ToSqlPart,
-    },
-    Constraint, InitStatement, Query, SchemaColumn, Statement,
+    ident_safety::PanicOnUnsafe, BindItem, Constraint, Query,
+    QueryHandlers, SchemaColumn, Statement,
 };
 
 #[derive(Debug)]
-pub struct CreateTableSt<S, Q: Query<S>> {
+pub struct CreateTableSt<S, Q: Query> {
     pub(crate) header: String,
     pub(crate) ident: (Option<String>, String),
     pub(crate) columns: Vec<(String, Q::SqlPart)>,
@@ -19,25 +17,6 @@ pub struct CreateTableSt<S, Q: Query<S>> {
     pub(crate) verbatim: Vec<String>,
     pub(crate) ctx: Q::Context1,
     pub(crate) _sqlx: PhantomData<S>,
-}
-
-impl<S, Q> Clone for CreateTableSt<S, Q>
-where
-    Q: Query<S>,
-    Q::Context1: Clone,
-    Q::SqlPart: Clone,
-{
-    fn clone(&self) -> Self {
-        Self {
-            header: self.header.clone(),
-            ident: self.ident.clone(),
-            columns: self.columns.clone(),
-            constraints: self.constraints.clone(),
-            verbatim: self.verbatim.clone(),
-            ctx: self.ctx.clone(),
-            _sqlx: PhantomData,
-        }
-    }
 }
 
 pub enum CreateTableHeader {
@@ -67,17 +46,18 @@ impl Display for CreateTableHeader {
     }
 }
 
-impl<S, Q: Query<S>> ExecuteNoCacheUsingSelectTrait
+impl<S, Q: Query> ExecuteNoCacheUsingSelectTrait
     for CreateTableSt<S, Q>
 {
 }
 
-impl<S, Q> InitStatement<Q> for CreateTableSt<S, Q>
+impl<S, Q> CreateTableSt<S, Q>
 where
-    Q: Query<S>,
+    Q: Query,
 {
-    type Init = (CreateTableHeader, &'static str);
-    fn init(header: (CreateTableHeader, &'static str)) -> Self {
+    pub fn init(
+        header: (CreateTableHeader, &str),
+    ) -> Self {
         Self {
             header: header.0.to_string(),
             ident: (None, header.1.to_string()),
@@ -89,9 +69,10 @@ where
         }
     }
 }
+
 impl<S, Q> Statement<S, Q> for CreateTableSt<S, Q>
 where
-    Q: Query<S>,
+    Q: Query,
 {
     fn deref_ctx(&self) -> &Q::Context1 {
         &self.ctx
@@ -141,7 +122,7 @@ where
 
 impl<S, Q> CreateTableSt<S, Q>
 where
-    Q: Query<S>,
+    Q: Query,
     S: Database,
 {
     pub fn verbatim(&mut self, verbatim: &str) {
@@ -149,105 +130,104 @@ where
     }
     pub fn column<C>(&mut self, name: &str, constraint: C)
     where
-        C: SchemaColumn<S, Q>,
-        ColumnToSqlPart<C>: ToSqlPart<Q, S>,
+        C: SchemaColumn<S> + 'static,
+        C: BindItem<S, Q>,
+        Q: QueryHandlers<S>,
     {
-        self.columns.push((
-            name.to_string(),
-            ColumnToSqlPart(constraint)
-                .to_sql_part(&mut self.ctx),
-        ));
+        let item =
+            Q::handle_bind_item(constraint, &mut self.ctx);
+        self.columns.push((name.to_string(), item));
     }
     pub fn constraint<C>(&mut self, constraint: C)
     where
-        C: Constraint<S, Q>,
-        ConstraintToSqlPart<C>: ToSqlPart<Q, S>,
+        C: Constraint + 'static,
+        C: BindItem<S, Q>,
+        Q: QueryHandlers<S>,
     {
-        self.constraints.push(
-            ConstraintToSqlPart(constraint)
-                .to_sql_part(&mut self.ctx),
-        )
+        let item =
+            Q::handle_bind_item(constraint, &mut self.ctx);
+        self.constraints.push(item)
     }
 }
 
-#[cfg(todo)]
-mod create_table_st {
-    use sqlx::{Pool, Sqlite};
-
-    use crate::{
-        expressions::{
-            exports::{col_type, foreign_key},
-            NotNull,
-        },
-        SupportNamedBind,
-    };
-
-    use super::*;
-
-    fn test_default<'q>() -> CreateTableSt<Sqlite, DebugQuery> {
-        CreateTableSt {
-            header: "CREATE TABLE".to_string(),
-            ident: (None, "users".to_string()),
-            columns: vec![],
-            constraints: vec![],
-            ctx: Default::default(),
-            verbatim: Default::default(),
-            _sqlx: PhantomData,
-        }
-    }
-
-    trait QueryIsDebug<S>: Sized {
-        fn query_is_debug(self) -> Self {
-            self
-        }
-    }
-    impl<S, T> QueryIsDebug<S> for T
-    where
-        S: Database + SupportNamedBind,
-        T: crate::Statement<S, DebugQuery> + Sized,
-    {
-    }
-
-    use crate::execute_no_cache::ExecuteNoCache;
-
-    #[tokio::test]
-    async fn create_main() {
-        let pool = Pool::<Sqlite>::connect("sqlite::memory:")
-            .await
-            .unwrap();
-        let mut st = CreateTableSt::init((
-            CreateTableHeader::IfNotExists,
-            "Todo",
-        ))
-        .query_is_debug();
-
-        st.column("id", (col_type::<i64>(), NotNull));
-
-        assert_eq!(
-            st.build_statement(),
-            "CREATE TABLE IF NOT EXISTS Todo (id INTEGER NOT NULL);"
-        );
-
-        st.execute(&pool).await.unwrap();
-    }
-
-    #[test]
-    fn test_foreign_key() {
-        let mut table = test_default();
-
-        table.constraint(
-            foreign_key()
-                .column("id")
-                .refer_table("users")
-                .refer_column("id")
-                .finish(),
-        );
-
-        let (str, _) = table._build();
-
-        assert_eq!(
-            str,
-            "CREATE TABLE users (FOREIGN KEY (id) REFERENCES users(id));"
-        );
-    }
-}
+// #[cfg(todo)]
+// mod create_table_st {
+//     use sqlx::{Pool, Sqlite};
+//
+//     use crate::{
+//         expressions::{
+//             exports::{col_type, foreign_key},
+//             NotNull,
+//         },
+//         SupportNamedBind,
+//     };
+//
+//     use super::*;
+//
+//     fn test_default<'q>() -> CreateTableSt<Sqlite, DebugQuery> {
+//         CreateTableSt {
+//             header: "CREATE TABLE".to_string(),
+//             ident: (None, "users".to_string()),
+//             columns: vec![],
+//             constraints: vec![],
+//             ctx: Default::default(),
+//             verbatim: Default::default(),
+//             _sqlx: PhantomData,
+//         }
+//     }
+//
+//     trait QueryIsDebug<S>: Sized {
+//         fn query_is_debug(self) -> Self {
+//             self
+//         }
+//     }
+//     impl<S, T> QueryIsDebug<S> for T
+//     where
+//         S: Database + SupportNamedBind,
+//         T: crate::Statement<S, DebugQuery> + Sized,
+//     {
+//     }
+//
+//     use crate::execute_no_cache::ExecuteNoCache;
+//
+//     #[tokio::test]
+//     async fn create_main() {
+//         let pool = Pool::<Sqlite>::connect("sqlite::memory:")
+//             .await
+//             .unwrap();
+//         let mut st = CreateTableSt::init((
+//             CreateTableHeader::IfNotExists,
+//             "Todo",
+//         ))
+//         .query_is_debug();
+//
+//         st.column("id", (col_type::<i64>(), NotNull));
+//
+//         assert_eq!(
+//             st.build_statement(),
+//             "CREATE TABLE IF NOT EXISTS Todo (id INTEGER NOT NULL);"
+//         );
+//
+//         st.execute(&pool).await.unwrap();
+//     }
+//
+//     #[test]
+//     fn test_foreign_key() {
+//         let mut table = test_default();
+//
+//         table.constraint(
+//             foreign_key()
+//                 .column("id")
+//                 .refer_table("users")
+//                 .refer_column("id")
+//                 .finish(),
+//         );
+//
+//         let (str, _) = table._build();
+//
+//         assert_eq!(
+//             str,
+//             "CREATE TABLE users (FOREIGN KEY (id) REFERENCES users(id));"
+//         );
+//     }
+// }

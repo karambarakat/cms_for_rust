@@ -1,225 +1,373 @@
-#![allow(unused)]
-use std::task::{Context, Poll};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fmt,
+    num::NonZero,
+};
 
 use axum::{
-    extract::{FromRequestParts, Request},
-    http::{request::Parts, HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
+    body::{Body, HttpBody},
+    extract::{FromRequestParts, Request, State},
+    http::{
+        header::AUTHORIZATION, request::Parts, HeaderMap,
+        HeaderValue, Response, StatusCode,
+    },
+    middleware::{from_fn, Next},
+    response::IntoResponse,
+    routing::{get, post},
+    Extension, Json, Router,
 };
-use entity::User;
-use futures_util::future::BoxFuture;
-use tower::{Layer, Service};
-use tracing::error;
+use chrono::Utc;
+use hmac::{Hmac, Mac};
+use ijwt::IClaims;
+use jwt::{FromBase64, SignWithKey};
+use serde::{Deserialize, Serialize};
+use sqlx::{
+    database::HasArguments, ColumnIndex, Database, Decode,
+    Executor, IntoArguments, Pool, Sqlite,
+};
 
-mod entity {
-    use inventory::submit;
-    use queries_for_sqlx::{IntoMutArguments, SupportNamedBind};
-    use serde::{Deserialize, Serialize};
-    use sqlx::{
-        prelude::{FromRow, Type},
-        Arguments, ColumnIndex, Database, Decode, Encode, Row,
-        Sqlite,
-    };
-    use std::marker::PhantomData;
+use crate::traits::{Collection, Update};
 
-    use crate::{
-        entities::{Entity, EntityPhantom},
-        queries_for_sqlx_extention::{
-            col_type_check_if_null, primary_key, SqlxQuery,
-        },
-    };
+#[derive(Serialize, Deserialize)]
+pub struct SuperUser {
+    pub user_name: Option<String>,
+    pub email: Option<String>,
+    pub password: Option<Password>,
+}
 
-    #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        Serialize,
-        Deserialize,
-        FromRow,
-    )]
-    pub struct User {
-        pub user_name: String,
-        pub email: String,
-        pub password: Option<String>,
-    }
+pub fn migration_st<S: Database>() -> &'static str {
+    r#"
+    CREATE TABLE IF NOT EXISTS _super_user (
+        id SERIAL PRIMARY KEY,
+        user_name TEXT NOT NULL,
+        email TEXT NOT NULL,
+        password TEXT,
+        PRIMARY KEY (user_name, email)
+    );
+    "#
+}
 
-    impl<S> Entity<S> for User
-    where
-        S: SupportNamedBind + Sync + SqlxQuery,
-        for<'s> &'s str: ColumnIndex<S::Row>,
-        String: Type<S> + for<'d> Decode<'d, S>,
-    {
-        type Partial = User;
+pub async fn cold_start_no_super_users<DB: Database, E>(exec: &E)
+where
+    DB: Database,
+    i32: sqlx::Type<DB> + for<'r> Decode<'r, DB>,
+    for<'c> &'c E: Executor<'c, Database = DB>,
+    for<'a> <DB as HasArguments<'a>>::Arguments:
+        IntoArguments<'a, DB>,
+    usize: ColumnIndex<<DB as Database>::Row>,
+{
+    let res: (i32,) =
+        sqlx::query_as("SELECT COUNT(*) FROM _super_user")
+            .fetch_one(exec)
+            .await
+            .expect("Failed to check for super users");
 
-        fn migrate<'q>(
-            stmt: &mut queries_for_sqlx::prelude::stmt::CreateTableSt<S, queries_for_sqlx::quick_query::QuickQuery<'q>>,
-        ) {
-            stmt.column(
-                "user_name",
-                (
-                    col_type_check_if_null::<S::KeyType>(),
-                    primary_key(),
-                ),
-            );
-        }
+    if res.0 == 0 {
+        let id: (i32,) = sqlx::query_as(
+            "INSERT INTO _super_user () VALUES () RETURNING id",
+        )
+        .fetch_one(exec)
+        .await
+        .expect("Failed to insert super user");
 
-        fn table_name() -> &'static str {
-            "User"
-        }
+        let token = ijwt::sign_for(
+            &id.0.to_string(),
+            chrono::Duration::minutes(30),
+        );
 
-        fn from_row(
-            row: &<S as sqlx::Database>::Row,
-        ) -> Result<Self, sqlx::Error> {
-            Ok(Self {
-                user_name: row.try_get("user_name")?,
-                password: row.try_get("password")?,
-                email: row.try_get("email")?,
-            })
-        }
-
-        fn from_row_scoped(
-            row: &<S as sqlx::Database>::Row,
-        ) -> Result<Self, sqlx::Error> {
-            Ok(Self {
-                user_name: row.try_get("user_user_name")?,
-                password: row.try_get("user_password")?,
-                email: row.try_get("user_email")?,
-            })
-        }
-
-        fn members_scoped() -> Vec<&'static str> {
-
-            vec![
-                "user_user_name",
-                "user_password",
-                "user_email"]
-        }
-
-        fn members() -> Vec<&'static str> {
-            vec!["user_name", "password", "email"]
-        }
-    }
-
-    submit!(crate::entities::DynEntitySubmitable::<Sqlite> {
-        object: || {
-            Box::new(EntityPhantom::<User>(PhantomData))
-        }
-    });
-
-    submit!(crate::migration::Submitable::<Sqlite> {
-        object: || {
-            Box::new(EntityPhantom::<User>(PhantomData))
-        }
-    });
-
-    impl<'q, S> IntoMutArguments<'q, S> for User
-    where
-        S: Database,
-        String: Type<S> + Encode<'q, S> + Send + 'q,
-    {
-        fn into_arguments(
-            self,
-            argument: &mut <S as sqlx::database::HasArguments<
-                'q,
-            >>::Arguments,
-        ) {
-            argument.add(self.user_name);
-            argument.add(self.password);
-            argument.add(self.email);
-        }
+        println!("Super user token: {}", token);
     }
 }
 
-fn from_part(parts: &HeaderMap) -> Result<User, Response> {
-    let auth = parts
-        .get("authorization")
-        .ok_or(StatusCode::UNAUTHORIZED.into_response())?
-        .to_str()
-        .map_err(|_| StatusCode::UNAUTHORIZED.into_response())?
-        .strip_prefix("Bearer ")
-        .ok_or(StatusCode::UNAUTHORIZED.into_response())?
-        .to_string();
+pub struct AuthError;
 
-    Ok(todo!())
+impl<T: fmt::Debug> From<T> for AuthError {
+    fn from(value: T) -> Self {
+        AuthError
+    }
 }
 
-#[async_trait::async_trait]
-impl<S> FromRequestParts<S> for User {
-    type Rejection = Response;
+impl IntoResponse for AuthError {
+    fn into_response(self) -> axum::response::Response {
+        (StatusCode::BAD_REQUEST, ()).into_response()
+    }
+}
+
+pub fn auth_router() -> Router<Pool<Sqlite>> {
+    Router::new()
+        .route(
+            "/set_up_invited",
+            post(set_up_invited)
+                .route_layer(from_fn(need_super_user)),
+        )
+        .route(
+            "/login",
+            post(login)
+                .route_layer(from_fn(extend_for_authinticated)),
+        )
+}
+
+#[derive(Deserialize)]
+pub struct EmailPassword {
+    email: String,
+    password: String,
+}
+
+impl<S: Sync> FromRequestParts<S> for EmailPassword {
+    type Rejection = String;
 
     async fn from_request_parts(
         parts: &mut Parts,
-        _: &S,
+        state: &S,
     ) -> Result<Self, Self::Rejection> {
-        let auth = if let Some(e) =
-            parts.extensions.get::<User>()
-        {
-            return Ok(e.clone());
-        } else {
-            error!("AuthLayer is not used, the client will not get new token");
-            return Ok(from_part(&parts.headers)?);
-        };
+        let basic = parts
+            .headers
+            .get(AUTHORIZATION)
+            .ok_or("authorization header does exist")?;
+        let basic = basic.to_str().map_err(|e| e.to_string())?;
+        let basic =
+            basic.strip_prefix("Basic ").ok_or("basic token")?;
+        let mut basic = EmailPassword::from_base64(basic)
+            .map_err(|e| e.to_string())?;
+
+        let salt = std::env::var("SALT").unwrap();
+
+        let mut digest = [0u8; ring::digest::SHA256_OUTPUT_LEN];
+
+        let key = ring::pbkdf2::derive(
+            ring::pbkdf2::PBKDF2_HMAC_SHA256,
+            NonZero::new(100).unwrap(),
+            salt.as_bytes(),
+            basic.password.as_bytes(),
+            &mut digest,
+        );
+
+        use jwt::ToBase64;
+
+        basic.password = digest.to_base64().unwrap().to_string();
+
+        Ok(basic)
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct AuthLayer;
-
-#[derive(Debug, Clone)]
-pub struct AuthLayerS<S> {
-    inner: S,
+#[derive(Deserialize)]
+pub struct SetupFirstUser {
+    user: String,
 }
 
-impl<S> Layer<S> for AuthLayer {
-    type Service = AuthLayerS<S>;
+#[axum::debug_handler]
+pub async fn set_up_invited(
+    user: Extension<IClaims>, // authenticated
+    db: State<Pool<Sqlite>>,
+    // safe: password was already hashed
+    basic_safe: EmailPassword,
+    body: Json<SetupFirstUser>,
+) -> Result<(), ()> {
+    sqlx::query(
+        "
+    INSERT (user_name, email, password) 
+    VALUES ($1, $2, $3)
+    INTO _super_user WHERE id = $4",
+    )
+    .bind(body.0.user)
+    .bind(basic_safe.email)
+    .bind(basic_safe.password)
+    .bind(user.0.id)
+    .fetch_one(&db.0)
+    .await
+    .unwrap();
 
-    fn layer(&self, inner: S) -> Self::Service {
-        AuthLayerS { inner }
+    Ok(())
+}
+
+#[axum::debug_handler]
+pub async fn login(
+    db: State<Pool<Sqlite>>,
+    mut may_extend: Extension<MayExtend>,
+    // safe: password was already hashed
+    basic_safe: EmailPassword,
+) -> Result<(), ()> {
+    let id: (i32,) = sqlx::query_as(
+        "
+SELECT id FROM _super_user WHERE passsword = $1 AND email = $2",
+    )
+    .bind(basic_safe.password)
+    .bind(basic_safe.email)
+    .fetch_one(&db.0)
+    .await
+    .unwrap();
+
+    may_extend.0.extend_for(&id.0.to_string());
+
+    Ok(())
+}
+
+#[derive(Clone)]
+pub struct MayExtend(Option<String>);
+impl MayExtend {
+    pub fn extend_for(&mut self, id: &str) {
+        self.0 = Some(id.to_string());
     }
 }
 
-impl<S> Service<Request> for AuthLayerS<S>
-where
-    S: Service<Request, Response = Response> + Send + 'static,
-    S::Future: Send + 'static,
-{
-    type Response = S::Response;
-    type Error = S::Error;
-    type Future =
-        BoxFuture<'static, Result<Self::Response, Self::Error>>;
+#[axum::debug_middleware]
+pub async fn extend_for_authinticated(
+    mut req: Request<Body>,
+    next: axum::middleware::Next,
+) -> Result<Response<Body>, String> {
+    let may_extend = MayExtend(None);
+    req.extensions_mut().insert(may_extend);
 
-    fn poll_ready(
-        &mut self,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<(), Self::Error>> {
-        self.inner.poll_ready(cx)
+    let mut res = next.run(req).await;
+
+    let may_extend =
+        res.extensions().get::<MayExtend>().unwrap();
+    if let Some(id) = &may_extend.0 {
+        let token =
+            ijwt::sign_for(id, chrono::Duration::days(1));
+
+        res.headers_mut().append(
+            "X-token",
+            HeaderValue::from_str(&token).unwrap(),
+        );
     }
 
-    fn call(&mut self, mut request: Request) -> Self::Future {
-        let token = from_part(request.headers());
+    Ok(res)
+}
 
-        if let Ok(token) = token {
-            request.extensions_mut().insert::<User>(token);
-            let future = self.inner.call(request);
-            Box::pin(async move {
-                let mut response: Response = future.await?;
+#[axum::debug_middleware]
+pub async fn need_super_user(
+    headers: HeaderMap,
+    mut req: Request<Body>,
+    next: axum::middleware::Next,
+) -> Result<Response<Body>, AuthError> {
+    let bearer = headers
+        .get(AUTHORIZATION)
+        .ok_or("no auth found")?
+        .to_str()?;
 
-                response
-                    .headers_mut()
-                    .insert("X-token", "".parse().unwrap());
+    let bearer = bearer
+        .strip_prefix("Bearer ")
+        .ok_or("should start with Bearer")?;
 
-                Ok(response)
-            })
-        } else {
-            Box::pin(async move {
-                Ok((StatusCode::UNAUTHORIZED, "")
-                    .into_response())
-            })
+    let map = ijwt::verify_exp(bearer)?;
+
+    let id = map.id.clone();
+
+    req.extensions_mut().insert(map);
+
+    let mut res = next.run(req).await;
+
+    // extend for authiticated users
+    let token = ijwt::sign_for(
+        &id.to_string(),
+        chrono::Duration::days(1),
+    );
+
+    // I don't want to use cookies for potentioal misuse
+    res.headers_mut().append(
+        "X-token",
+        HeaderValue::from_str(&token).unwrap(),
+    );
+
+    Ok(res)
+}
+
+mod ijwt {
+    use std::collections::HashMap;
+
+    use chrono::DateTime;
+    use chrono::Duration;
+    use chrono::Utc;
+    use hmac::Hmac;
+    use hmac::Mac;
+    use jwt::Claims;
+    use jwt::FromBase64;
+    use jwt::SignWithKey;
+    use jwt::ToBase64;
+    use jwt::VerifyWithKey;
+    use serde::Deserialize;
+    use serde::Serialize;
+
+    #[derive(Clone, Deserialize, Serialize)]
+
+    pub struct IClaims {
+        pub id: String,
+        pub iat: i64,
+        pub exp: i64,
+    }
+
+    fn sign(data: IClaims) -> String {
+        let env =
+            std::env::var("JWT_SALT").expect("JWT_SALT not set");
+
+        let key =
+            Hmac::<sha2::Sha256>::new_from_slice(env.as_bytes())
+                .expect("HMAC can take key of any size");
+
+        data.sign_with_key(&key).unwrap()
+    }
+
+    pub fn sign_for(
+        id: &str,
+        until: chrono::TimeDelta,
+    ) -> String {
+        let env =
+            std::env::var("JWT_SALT").expect("JWT_SALT not set");
+
+        let key =
+            Hmac::<sha2::Sha256>::new_from_slice(env.as_bytes())
+                .expect("HMAC can take key of any size");
+
+        let iat = Utc::now();
+        let exp = iat + until;
+
+        sign(IClaims {
+            id: id.to_owned(),
+            iat: iat.timestamp(),
+            exp: exp.timestamp(),
+        })
+    }
+
+    fn verify_or(data: &str) -> Option<()> {
+        let env =
+            std::env::var("JWT_SALT").expect("JWT_SALT not set");
+
+        let key =
+            Hmac::<sha2::Sha256>::new_from_slice(env.as_bytes())
+                .expect("HMAC can take key of any size");
+
+        let _: IClaims = data.verify_with_key(&key).ok()?;
+
+        Some(())
+    }
+
+    pub fn verify_exp(data: &str) -> Result<IClaims, String> {
+        let env =
+            std::env::var("JWT_SALT").expect("JWT_SALT not set");
+
+        let key =
+            Hmac::<sha2::Sha256>::new_from_slice(env.as_bytes())
+                .expect("HMAC can take key of any size");
+
+        let claims: IClaims = data
+            .verify_with_key(&key)
+            .map_err(|_| "token invalid")?;
+
+        let exp =
+            DateTime::from_timestamp(claims.exp, 0).unwrap();
+        let now = Utc::now();
+
+        if exp < now {
+            return Err("token expired")?;
         }
+
+        Ok(claims)
     }
 }
 
-pub fn layer() -> AuthLayer {
-    AuthLayer
+#[derive(Deserialize, Serialize)]
+pub struct Password {
+    #[serde(skip_serializing)]
+    password: String,
 }

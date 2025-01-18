@@ -9,155 +9,496 @@ my focus now is to make an admit UI and monetize the project by providing a clou
 ```rust
 use cms_for_rust::schema_prelude::*;
 
-schema! { db = "sqlx::Sqlite", }
-
-#[entity]
+#[standard_collection]
 pub struct Todo {
     pub title: String,
     pub done: bool,
     pub description: Option<String>,
 }
 
-#[entity]
+#[standard_collection]
 pub struct Category {
     pub title: String,
 }
 
-#[entity]
+#[standard_collection]
 pub struct Tag {
     pub title: String,
 }
 
-relations! { optional_to_many Todo Category }
-relations! { many_to_many Todo Tag }
+relation! { optional_to_many Todo Category }
+relation! { many_to_many Todo Tag }
 ```
 
-and just like that you a full CRUD http server, automatic migration and optionally an admin UI to manage your data.
+and just like that you a full CRUD http server, automatic migration, an admin UI (comming) and an ORM-like api.
+
+# Why Not SeaORM
+I worked with SeaORM for a while, before I decided to do this. there are many issues I tried to solve here.
+
+To summarize I think this crate is more flexible and convienient than SeaORM, to list few differences:
+
+1. Out of the box migration. (see Migration)
+2. support multiple relation population and/or deep population. (see Deep Relation)
+3. Out of the box Axum server. (see HTTP Server)
+
+# All Features
 
 ## Migration
 
 migaration can be done with one line of code:
 
 ```rust
-cms_for_rust::migration::migrate(sqlx_db_conn.clone()).await;
+cms_for_rust::migration::run_migrate(&sqlx_db_conn).await;
 ```
 
-this will look at the schema and create the necessary tables, keys, etc.
+this will look at the schema defined above and create the necessary tables, keys, etc.
 
 
 ## HTTP Server
 
-```rust
-use cms_for_rust::axum_router::AxumRouter;
+you can run fully-functional CRUD REST API with:
 
-cms_for_rust::migration::migrate(sqlx_db_conn.clone()).await;
+```rust
+use cms_for_rust::axum_router::collections_router;
+use cms_for_rust::auth::auth_router;
+
+let sqlx_db_conn = Pool::<Sqlite>::connect("sqlite::memory:")
+    .await
+    .unwrap();
+
+cms_for_rust::migration::run_migration(&sqlx_db_conn).await;
 
 let app = axum::Router::new()
     .route("/", get(|| async { "Server is running" }))
-    .nest("/todo", Todo::router())
-    .nest("/category", Category::router())
-    .nest("/tag", Tag::router())
+    .nest("/collections", collections_router())
+    .nest("/auth", auth_router())
     .with_state(sqlx_db_conn);
 
-// load_some_dumpy_data()
-
-let mut res = app
-    .oneshot(
-        Request::builder()
-            .uri("/todo")
-            .method(Method::GET)
-            .json_body(json!({
-                "query": {
-                    // support pagination
-                    "pagination": {
-                        "page_size": 2,
-                        "page_shift": 2,
-                    },
-                },
-                "relations": {
-                    // populate both category and tags,
-                    // this will do a left join for category
-                    // and spin another request for tags
-                    "category": { "id": true, "attributes": true },
-                    "tags": { "id": true, "attributes": true },
-                },
-            }))
-            .expect("request"),
-    )
+let listner = tokio::net::TcpListener::bind("0.0.0.0:3000")
     .await
-    .expect("oneshot");
-
-let res = res.into_json().await.unwrap();
-
-expect(&res).to_be(&json!({
-    "meta": { "page_number": 2 },
-    "data": [
-        {
-            "id": 3,
-            "attributes": {
-                "title": "todo_3",
-                "done": false,
-                "description": "blue",
-            },
-            "relations": {
-                "category": {
-                    "id": 3,
-                    "attributes": { "title": "cat_3" }
-                },
-                "tags": [
-                    { "id": 1, "attributes": { "title": "tag_1" } },
-                    { "id": 2, "attributes": { "title": "tag_2" } },
-                ]
-            }
-        },
-        {
-            "id": 4,
-            "attributes": {
-                "title": "todo_4",
-                "done": true,
-                "description": "yellow",
-            },
-            "relations": {
-                "category": null,
-                "tags": [
-                    { "id": 1, "attributes": { "title": "tag_1" } },
-                ]
-            },
-        },
-    ]
-}));
+    .unwrap();
 ```
 
-for all feature supported I have an example at client/examples/todo_app, here is list
+the authintication strategry is basic for now -- reading is public and writing is protected via Bearer JWT token for `_super_users` table entries. in the future I will make a more customizable permission plugin.
 
-## Low level customization
+checkout `all http REST features` section for all supported features.
 
-to build something custom, I have low-level API from queries_for_sqlx crate (see client/examples/easy_to_customize):
+## ORM API
 
-```rust
-axum::Router::new()
-    .route("/", get(|| async {
-        let mut st = select_st::<_, Todo>();
+you have access to ORM-like client that supports populating relations:
 
-        // SELECT * FROM Todo
-        st.select(all_columns());
+```
+let res = get_one::<Todo>()
+    .by_id(2)
+    .relation::<Tag>()
+    .relation::<Category>()
+    .exec_op(db.clone())
+    .await;
 
-        // This will use information from sqlx to figure out
-        // the type of the output on the fly
-        st.fetch_all(&db.0, row_to_json_cached::sqlite_row())
-            .await
-            .unwrap()
-    }));
-
-// test the response
-assert_eq!(
-    response_body,
-    json!([
-        {"title": "hi", "done": true, "description": "hello"},
-        {"title": "bye", "done": false, "description": "goodbye"}
-    ])
+pretty_assertions::assert_eq!(
+    res,
+    Some(GetOneOutput {
+        id: 2,
+        attr: Todo {
+            title: "todo_2".to_string(),
+            done: false,
+            description: None,
+        },
+        links: TupleAsMap((
+            vec![
+                SimpleOutput {
+                    id: 1,
+                    attr: Tag {
+                        tag_title: "tag_1".to_string()
+                    }
+                },
+                SimpleOutput {
+                    id: 2,
+                    attr: Tag {
+                        tag_title: "tag_2".to_string()
+                    }
+                },
+            ],
+            Some(SimpleOutput {
+                id: 3,
+                attr: Category {
+                    cat_title: "category_3".to_string()
+                }
+            }),
+        ))
+    })
 );
 ```
+
+## Deep Relation
+in addition to multiple relation domenstrated above, you can do deep relations like this:
+```rust
+    async fn test_deep_populate(db: Pool<Sqlite>) {
+        let res = get_one::<Todo>()
+            .link_data(
+                relation::<Category>()
+                    // in theory you can do multiple deep relations and/or go deeper
+                    .deep_populate::<Todo>(),
+            )
+            .exec_op(db.clone())
+            .await;
+
+        pretty_assertions::assert_eq!(
+            res,
+            Some(GetOneOutput {
+                id: 1,
+                attr: Todo {
+                    title: "todo_1".to_string(),
+                    done: true,
+                    description: None,
+                },
+                links: TupleAsMap((Some(GetOneOutput {
+                    id: 3,
+                    attr: Category {
+                        cat_title: "category_3".to_string()
+                    },
+                    links: (vec![
+                        SimpleOutput {
+                            id: 1,
+                            attr: Todo {
+                                title: "todo_1".to_string(),
+                                done: true,
+                                description: None,
+                            },
+                        },
+                        SimpleOutput {
+                            id: 2,
+                            attr: Todo {
+                                title: "todo_2".to_string(),
+                                done: false,
+                                description: None,
+                            },
+                        },
+                    ],)
+                }),))
+            })
+        );
+    }
+```
+
+## all http REST features
+
+`POST /collections/{collection}/get_one`
+```rust
+    async fn test_get_one(db: Pool<Sqlite>) {
+        let res = get_one_dynamic(
+            State(db.clone()),
+            Path("todo".to_string()),
+            Json(
+                from_value(json!({
+                    "filters": {},
+                    "id": 2,
+                    "relations": {
+                        "tag": {},
+                        "category": {}
+                    }
+                }))
+                .unwrap(),
+            ),
+        )
+        .await
+        .unwrap();
+
+        pretty_assertions::assert_eq!(
+            serde_json::to_value(res.0).unwrap(),
+            json! {{
+                "attr": {
+                    "description": null,
+                    "done": false,
+                    "title": "todo_2",
+                },
+                "id": 2,
+                "relations": {
+                    "category": {
+                        "id": 3,
+                        "attr": {
+                            "cat_title": "category_3",
+                        }
+                    },
+                    "tag": [
+                        {
+                            "id": 1,
+                            "attr": {
+                                "tag_title": "tag_1",
+                            },
+                        },
+                        {
+                            "id": 2,
+                            "attr": {
+                                "tag_title": "tag_2",
+                            },
+                        },
+                    ]
+                }
+            }}
+        );
+    }
+```
+
+`POST /collections/{collection}/get_all`
+```rust
+    async fn test_get_all(db: Pool<Sqlite>) {
+        let res = get_all_dynamic(
+            State(db.clone()),
+            Path("todo".to_string()),
+            Json(
+                from_value(json!({
+                    "pagination": {
+                        "page": 0,
+                        "page_size": 3,
+                    },
+                    "filters": {},
+                    "relations": {
+                        "category": {},
+                        "tag": {}
+                    },
+                }))
+                .unwrap(),
+            ),
+        )
+        .await
+        .unwrap();
+
+        pretty_assertions::assert_eq!(
+            serde_json::to_value(res.0).unwrap(),
+            json! {{
+                "page_count": null,
+                "data": [
+                    {
+                        "id": 1,
+                        "attr": { "title": "todo_1", "done": true, "description": null },
+                        "relations": {
+                            "category": { "id": 3, "attr": { "cat_title": "category_3" } },
+                            "tag": [
+                                { "id": 1, "attr": { "tag_title": "tag_1" } },
+                                { "id": 3, "attr": { "tag_title": "tag_3" } }
+                            ]
+                        }
+                    },
+
+                    {
+                        "id": 2,
+                        "attr": { "title": "todo_2", "done": false, "description": null },
+                        "relations": {
+                            "category": { "id": 3, "attr": { "cat_title": "category_3" } },
+                            "tag": [
+                                { "id": 1, "attr": { "tag_title": "tag_1" } },
+                                { "id": 2, "attr": { "tag_title": "tag_2" } }
+                            ]
+                        }
+                    },
+
+                    {
+                        "id": 3,
+                        "attr": { "title": "todo_3", "done": true, "description": null },
+                        "relations": {
+                            "category": null,
+                            "tag": [
+                                { "id": 1, "attr": { "tag_title": "tag_1" } }
+                            ]
+                        }
+                    },
+
+                    // {
+                    //     "id": 4,
+                    //     "attr": { "title": "todo_4", "done": false, "description": null },
+                    //     "relations": {
+                    //         "category": { "id": 1, "attr": { "cat_title": "category_1" } },
+                    //         "tag": [
+                    //             { "id": 3, "attr": { "tag_title": "tag_3" } }
+                    //         ]
+                    //     }
+                    // },
+                    //
+                    // {
+                    //     "id": 5,
+                    //     "attr": { "title": "todo_5", "done": true, "description": null },
+                    //     "relations": {
+                    //         "category": null,
+                    //         "tag": [
+                    //             { "id": 2, "attr": { "tag_title": "tag_2" } }
+                    //         ]
+                    //     }
+                    // },
+                ],
+            }}
+        );
+    }
+```
+
+`POST /collections/{collection}/insert_one`
+```rust
+    async fn test_insert_one(db: Pool<Sqlite>) {
+        let res = insert_one_dynamic(
+            State(db.clone()),
+            Path("todo".to_string()),
+            Json(
+                from_value(json!({
+                    "input": {
+                        "title": "new_title",
+                        "done": true,
+                        "description": "description"
+                    },
+                    "relation": {
+                        "category": {
+                            "set_id_to_and_populate": 3
+                        },
+                        "tag": {
+                            "set_id_to_and_populate": [1,2]
+                        },
+
+                    }
+                }))
+                .unwrap(),
+            ),
+        )
+        .await
+        .unwrap();
+
+        pretty_assertions::assert_eq!(
+            serde_json::to_value(res.0).unwrap(),
+            json! {{
+                "attr": {
+                    "description": "description",
+                    "done": true,
+                    "title": "new_title",
+                },
+                "id": 6,
+                "relations": {
+                    "category": {
+                        "id": 3,
+                        "attr": {
+                            "cat_title": "category_3",
+                        }
+                    },
+                    "tag": [
+                        {
+                          "id": 1,
+                          "attr": { "tag_title": "tag_1" }
+                        },
+                        {
+                          "id": 2,
+                          "attr": { "tag_title": "tag_2" }
+                        },
+                    ]
+                }
+            }}
+        );
+    }
+```
+
+`POST /collections/{collection}/update_one`
+```rust
+    async fn test_update_one(db: Pool<Sqlite>) {
+        let check: (String, u8) = sqlx::query_as(
+            "SELECT title, category_id FROM Todo where id = 4",
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+
+        assert_eq!(check, ("todo_4".to_owned(), 1));
+
+        let res = update_one_dynmaic(
+            State(db.clone()),
+            Path("todo".to_string()),
+            Json(
+                from_value(json!({
+                    "id": 4,
+                    "partial": {
+                        "title": ["set" , "new_title"]
+                    },
+                    "relations": {
+                        "category": { "set": null },
+                        "tag": [
+                            { "remove_link": 3 },
+                            { "set_link": 2 },
+                        ],
+                    }
+                }))
+                .unwrap(),
+            ),
+        )
+        .await
+        .unwrap();
+
+        let check: (String, Option<i64>) = sqlx::query_as(
+            "SELECT title, category_id FROM Todo where id = 4",
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+
+        assert_eq!(check, ("new_title".to_owned(), None));
+
+        let check: Vec<(i64,)> = sqlx::query_as(
+            "SELECT tag_id FROM TodoTag where todo_id = 4",
+        )
+        .fetch_all(&db)
+        .await
+        .unwrap();
+
+        pretty_assertions::assert_eq!(check, vec![(2,)]);
+
+        pretty_assertions::assert_eq!(
+            serde_json::to_value(res.0).unwrap(),
+            json! {{
+                "attr": {
+                    "description": null,
+                    "done": false,
+                    "title": "new_title",
+                },
+                "id": 4,
+                "relations": {
+                    "category": null,
+                    "tag": [2]
+                }
+            }}
+        );
+    }
+```
+
+`POST /collections/{collection}/delete_one`
+```rust
+    async fn test_delete_one(db: Pool<Sqlite>) {
+        let res = delete_one_dynmaic(
+            State(db.clone()),
+            Path("todo".to_string()),
+            Json(
+                from_value(json!({
+                    "id": 2,
+                    "return_attr": true,
+                    "return_residual": ["category"]
+                }))
+                .unwrap(),
+            ),
+        )
+        .await
+        .unwrap();
+
+        pretty_assertions::assert_eq!(
+            serde_json::to_value(res.0).unwrap(),
+            json! {{
+                "attr": {
+                    "description": null,
+                    "done": false,
+                    "title": "todo_2",
+                },
+                "id": 2,
+                "relations": {
+                    "category": 3
+                }
+            }}
+        );
+    }
+```
+
+for all feature supported all tests are at cms/src/operations
 
 ## ORM-like API
 
@@ -191,6 +532,71 @@ assert_eq!(
 );
 ```
 
+## Dynamic query builder (low level customization)
+
+The CMS is built on top of other crate I have called `queries_for_sqlx`, this crate is meant to be an extention for the famouse crate `sqlx`, and closely mimics sqlx and how different databases behave.
+
+here is a summary of the features:
+1. extentions of sqlx to build queries dynamicly
+2. protect against SQL Injection
+3. handle database that support `?` syntax (unlike Sqlite which support `$1` for binding)
+
+I need to elaborate more on this crate, but that crate was not the purpose for this project.
+
+examples:
+
+```rust
+axum::Router::new()
+    .route("/", get(|| async {
+        let mut st = select_st::init("Todo");
+
+        // SELECT * FROM Todo
+        st.select(all_columns());
+
+        // This will use information from sqlx to figure out
+        // the type of the output on the fly
+        st.fetch_all(&db.0, row_to_json_cached::sqlite_row())
+            .await
+            .unwrap()
+    }));
+
+// test the response
+assert_eq!(
+    response_body,
+    json!([
+        {"id": 3, "title": "hi", "done": true, "description": "hello"},
+        {"id": 4, "title": "bye", "done": false, "description": "goodbye"}
+    ])
+);
+```
+
+binding values example:
+```rust
+let mut st = select_st::init("Todo");
+
+// SELECT * FROM Todo
+st.select(col("id"));
+st.select(col("title"));
+st.where_(col("id").eq(3));
+
+// the sql query: "SELECT id, title WHERE id = $1"
+#[derive(FromRow)]
+struct Todo {
+    id: i32,
+    title: String
+}
+
+let res = st.fetch(&db.0, |row| Todo::from_row(&row))
+    .await
+    .unwrap()
+
+// test the response
+assert_eq!(
+    res,
+    Todo { id: 3, title: "hi".to_string()},
+);
+```
+
 # Workspace Structure
 there are two core crates in this workspace:
 1.`queries_for_sqlx` low-level query builder, extention for sqlx
@@ -203,8 +609,10 @@ the idea behind this seperation is that I realize by working with SeaORM that co
     - strict semver policy: there will be no breaking changes in `queries_for_sqlx` beyond v0.1.0, as long as sqlx doesn't have its v1 this will not release v1.
 
 # Plugin System
-I'm working on a "Modular" plugin system inspired by Nvim plugins. the idea revolves arout the crate `inventory` the idea, each plugin is jsut an entry in Cargo.toml, and they export inventory items that define exaclty how they wish to be configured.
+I'm working on a "Modular" plugin system inspired by Nvim plugins. the idea revolves arout the crate `inventory` the idea, each plugin is defines how they wish to be customized by exporting `impl Collect`.
 
-this way there would be no such thing as 'core plugins', the cms will ship with default plugins and default entrypoint, but that just a code you can replace completely with something else, and the cms serve as just a code management tool.
+This way there would be no such thing as 'core plugins', each plugin is just an entry in Cargo.toml that submit inventory items.
 
-for example, the migration in this crate is completely separate unit from the rest of the codebase, downstream crates can submit `dyn Migrate` that configure how the migration is run. same thing with 'entities' unit and 'axum' unit.
+Every CMS have one enyrypoint "fn main", but this is 100% your code, I'm thinking to ship default entrypoint that includes all "built-in" plugins, and provide example of ones that are more customizable.
+
+for example, the migration in this crate is completely separate unit from the rest of the codebase, downstream crates can submit `dyn Migrate` that configure how the migration is run.

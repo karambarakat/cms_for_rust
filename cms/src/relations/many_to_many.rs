@@ -1,457 +1,557 @@
-use std::{marker::PhantomData, mem::take, pin::Pin, sync::Arc};
+use std::{collections::HashMap, mem};
 
-use futures_util::Future;
+use case::CaseExt;
 use queries_for_sqlx::{
-    execute_no_cache::ExecuteNoCache, ident_safety::PanicOnUnsafe, insert_one_st::InsertStOne, prelude::{col, ft, stmt, SelectHelpers}, quick_query::QuickQuery, select_st::{
-        joins::{join_type, Join},
-        SelectSt,
-    }, update_st::UpdateSt, InitStatement, SupportNamedBind
+    create_table_st::CreateTableHeader, delete_st,
+    insert_many_st::insert_many, select_st,
 };
-use serde::Deserialize;
-use serde_json::{from_value, json, Value};
-use sqlx::{
-    ColumnIndex, Database, Decode, Encode, Executor, Pool, Row, Type
+use serde::de::DeserializeOwned;
+use serde_json::from_value;
+use stmt::InsertMany;
+
+use crate::{
+    dynamic_schema::{
+        DynInsertOneWorker, DynUpdateOneWorker,
+        DynamicRelationResult,
+    },
+    migration2::DynMigration,
+    operations::{
+        insert_one::InsertOneWorker, select_many::GetAllWorker,
+        update_one::UpdateOneWorker, IdOutput, SimpleOutput,
+    },
+    queries_bridge::{DeleteSt, InsertSt, SelectSt, UpdateSt},
+    relations::ManyWorker,
 };
-use tracing::warn;
-
-use crate::{entities::DynEntity, entities::EntityPhantom};
-
-use super::super::operations::Id;
 
 use super::{
-    DynRelation, InsertInput, SubmitableRelation, UpdateInput,
+    optional_to_many::OptionalToMany, prelude::*, LinkData,
+    LinkIdWorker, LinkSpecCanInsert, LinkSpecCanUpdate,
+    UpdateIdInput, UpdateIdWorker,
 };
 
-#[derive(Deserialize)]
-struct RelationStructure<R> {
-    id: bool,
-    attributes: bool,
-    // todo: should only skip if ()
-    #[serde(skip)]
-    relations: R,
+#[derive(Clone)]
+pub struct ManyToMany {
+    pub conjuction_table: String,
+    pub base_id: String,
+    pub destination_id: String,
 }
 
-    #[derive(Debug)]
-    pub struct ManyToMany<Base, Related> {
-        pub schema_key: &'static str,
-        pub base_fk: &'static str,
-        pub base_t: &'static str,
-        pub rel_fk: &'static str,
-        pub rel_t: &'static str,
-        pub conj_table: &'static str,
-        pub _entities: PhantomData<(Base, Related)>,
+impl DynMigration for ManyToMany {
+    fn migrate(
+        &self,
+        ctx: &mut crate::migration2::MigrationCtx,
+    ) -> Result<(), String> {
+        let name = self.conjuction_table.clone();
+        let new = stmt::CreateTableSt::init((
+            CreateTableHeader::IfNotExists,
+            &name,
+        ));
+
+        match ctx.store.0.insert(name.to_string(), new) {
+            None => {}
+            Some(_) => {
+                panic!("should not contain old table")
+            }
+        };
+
+        let table = ctx.store.0.get_mut(&name);
+
+        todo!();
+
+        Ok(())
+    }
+}
+
+impl LinkSpec for ManyToMany {}
+impl LinkSpecCanInsert for ManyToMany {
+    type Input = Vec<i64>;
+}
+impl LinkSpecCanUpdate for ManyToMany {
+    type Input = Vec<UpdateIdInput>;
+}
+
+pub struct ManyToManyDynamic<From, To> {
+    pub(crate) list_itself_under: String,
+    pub(crate) key: String,
+    pub(crate) rel_spec: ManyToMany,
+    pub(crate) _pd: PhantomData<(From, To)>,
+}
+
+impl<From, To> ManyToManyDynamic<From, To>
+where
+    From: Collection<Sqlite>,
+    To: Collection<Sqlite>,
+    From: Linked<To, Spec = ManyToMany>,
+{
+    pub fn new() -> Self {
+        Self {
+            list_itself_under: From::table_name().to_string(),
+            key: To::table_name().to_snake(),
+            rel_spec: From::spec(),
+
+            _pd: PhantomData,
+        }
+    }
+}
+
+impl<F, T> CompleteRelationForServer for ManyToManyDynamic<F, T>
+where
+    F: Collection<Sqlite> + 'static,
+    T: Collection<Sqlite>
+        + 'static
+        + Serialize
+        + DeserializeOwned,
+{
+    fn list_iteself_under(&self) -> String {
+        self.list_itself_under.clone()
     }
 
-    impl<S, Base, Related> SubmitableRelation<S>
-        for ManyToMany<Base, Related>
-    where
-        S: Database,
-        EntityPhantom<Base>: DynEntity<S>,
-        Base: Send + 'static,
-        EntityPhantom<Related>: DynEntity<S>,
-        Related: Send + 'static,
-        for<'s> &'s str: ColumnIndex<S::Row>,
-        S: Database,
-        Option<i64>: Type<S>
-            + for<'d> Decode<'d, S>
-            + for<'e> Encode<'e, S>,
-        i64: Type<S>
-            + for<'d> Encode<'d, S>
-            + for<'d> Decode<'d, S>,
-    {
-        fn schema_key(&self) -> &str {
-            self.schema_key
+    fn key(&self) -> String {
+        self.key.clone()
+    }
+
+    fn init_on_insert(
+        self: Arc<Self>,
+        to: &str,
+        input: Value,
+    ) -> DynamicRelationResult<Box<dyn DynInsertOneWorker>> {
+        if to != self.key {
+            return DynamicRelationResult::NotFound;
         }
-        fn convert(
-            &self,
-            origin: &'static str,
-            input: serde_json::Value,
-        ) -> Box<dyn DynRelation<S>> {
-            match origin {
-                "from_update_one" => {
-                    match from_value::<InsertInput<UpdateInput<Vec<i64>>>>(input) {
-                        Ok(InsertInput{
-                            id: true,
-                            attributes: true,
-                            data: UpdateInput::connect { id }
-                        }) => {
-                                    return Box::new(ManyToManyUpdateConnect {
-                                        _db: PhantomData,
-                                        schema_key: self.schema_key,
-                                        conj_table: self.conj_table,
-                                        ft: self.rel_t,
-                                        fk: self.rel_fk,
-                                        lk: self.base_fk,
-                                        input: id,
-                                        related_entity: Box::new(
-                                            EntityPhantom::<Related>(
-                                                PhantomData,
-                                            ),
-                                        ),
-                                        output: Default::default(),
 
-                                    });
-                            },
-                            
-                        Ok(_) => todo!("update_one's many-to-many support: id: true, attributes: true, data: {{ connect }}"),
-                        Err(err) => panic!("update_one's many-to-many error: {:?}", err),
+        #[allow(non_camel_case_types)]
+        #[derive(Deserialize)]
+        enum ValidInput<T> {
+            set_id_to_and_populate(Vec<i64>),
+            set_id_to(Vec<i64>),
+            create_new(Vec<T>),
+        }
+
+        let input = match from_value::<ValidInput<T>>(input) {
+            Ok(ok) => ok,
+            Err(err) => {
+                return DynamicRelationResult::InvalidInput(
+                    err.to_string(),
+                )
+            }
+        };
+
+        let ret: Box<dyn DynInsertOneWorker> = match input {
+            ValidInput::set_id_to_and_populate(vec) => {
+                DynamicWorker::new(
+                    self.clone(),
+                    LinkIdWorker {
+                        input: vec,
+                        spec: self.rel_spec.clone(),
+                        _pd: PhantomData::<(F, T)>,
+                    },
+                )
+            }
+            _ => {
+                todo!("only set_id_to_and_populate is supported for now")
+            }
+        };
+
+        return DynamicRelationResult::Ok(ret);
+    }
+
+    fn init_on_get(
+        self: Arc<Self>,
+        to: &str,
+        input: Value,
+    ) -> DynamicRelationResult<Box<dyn DynGetOneWorker>> {
+        if to != self.key {
+            return DynamicRelationResult::NotFound;
+        }
+
+        #[derive(Deserialize)]
+        struct ValidInput {}
+
+        let input = match from_value::<ValidInput>(input) {
+            Ok(_) => {}
+            Err(err) => {
+                return DynamicRelationResult::InvalidInput(
+                    err.to_string(),
+                )
+            }
+        };
+
+        DynamicRelationResult::Ok(Box::new(DynamicWorker {
+            rw: Some(RelationWorker {
+                rel_spec: self.rel_spec.clone(),
+                _pd: self._pd,
+            }),
+            arc: self.clone(),
+            inner: Default::default(),
+        }))
+    }
+
+    fn init_on_get_all(
+        self: Arc<Self>,
+        to: &str,
+        input: Value,
+    ) -> DynamicRelationResult<
+        Box<dyn crate::dynamic_schema::DynGetManyWorker>,
+    > {
+        if to != self.key {
+            return DynamicRelationResult::NotFound;
+        }
+
+        #[derive(Deserialize)]
+        struct ValidInput {}
+
+        let input = match from_value::<ValidInput>(input) {
+            Ok(_) => {}
+            Err(err) => {
+                return DynamicRelationResult::InvalidInput(
+                    err.to_string(),
+                )
+            }
+        };
+
+        let ret = DynamicWorker::new(
+            self.clone(),
+            ManyWorker {
+                spec: self.rel_spec.clone(),
+                _pd: PhantomData::<(F, T)>,
+            },
+        );
+
+        return DynamicRelationResult::Ok(ret);
+    }
+
+    fn init_on_update(
+        self: Arc<Self>,
+        to: &str,
+        input: Value,
+    ) -> DynamicRelationResult<Box<dyn DynUpdateOneWorker>> {
+        if to != self.key {
+            return DynamicRelationResult::NotFound;
+        }
+
+        let input = match from_value::<Vec<UpdateIdInput>>(input)
+        {
+            Ok(ok) => ok,
+            Err(err) => {
+                return DynamicRelationResult::InvalidInput(
+                    err.to_string(),
+                )
+            }
+        };
+
+        return DynamicRelationResult::Ok(DynamicWorker::new(
+            self.clone(),
+            UpdateIdWorker {
+                input,
+                spec: self.rel_spec.clone(),
+                _pd: PhantomData::<(F, T)>,
+            },
+        ));
+    }
+}
+
+impl<Base, Destination> GetOneWorker
+    for RelationWorker<ManyToMany, Base, Destination>
+where
+    Base: Collection<Sqlite>,
+    Destination: Collection<Sqlite>,
+{
+    type Inner = (Option<i64>, Vec<(i64, Destination)>);
+    type Output = Vec<SimpleOutput<Destination>>;
+
+    fn from_row(&self, data: &mut Self::Inner, row: &SqliteRow) {
+        *&mut data.0 = Some(row.get("local_id"))
+    }
+
+    fn sub_op<'t>(
+        &'t self,
+        data: &'t mut Self::Inner,
+        pool: Pool<Sqlite>,
+    ) -> impl Future<Output = ()> + Send + 't {
+        async move {
+            let id = data.0.unwrap();
+
+            let mut st = stmt::SelectSt::init(
+                self.rel_spec.conjuction_table.to_string(),
+            );
+
+            st.select_aliased(
+                &self.rel_spec.conjuction_table,
+                &self.rel_spec.destination_id,
+                "dest_id",
+            );
+
+            Destination::on_select(&mut st);
+
+            st.where_(col(self.rel_spec.base_id.clone()).eq(id));
+
+            st.left_join(join {
+                on_table: Destination::table_name().to_string(),
+                on_column: "id".to_string(),
+                local_column: self
+                    .rel_spec
+                    .destination_id
+                    .clone(),
+            });
+
+            let vals = st
+                .fetch_all(&pool, |row| {
+                    let val = Destination::from_row_scoped(&row);
+                    Ok((row.get::<'_, i64, _>("dest_id"), val))
+                })
+                .await
+                .unwrap();
+
+            *&mut data.1 = vals;
+        }
+    }
+
+    fn take(self, data: Self::Inner) -> Self::Output {
+        data.1
+            .into_iter()
+            .map(|e| SimpleOutput { id: e.0, attr: e.1 })
+            .collect()
+    }
+}
+
+impl<B, T> InsertOneWorker
+    for LinkIdWorker<B, T, ManyToMany, Vec<i64>>
+where
+    B: Collection<Sqlite>,
+    T: Collection<Sqlite>,
+{
+    type Inner = (Option<i64>, Vec<T>);
+
+    type Output = Vec<SimpleOutput<T>>;
+
+    fn from_row(&self, data: &mut Self::Inner, row: &SqliteRow) {
+        *&mut data.0 = Some(row.get("id"));
+    }
+
+    fn sub_op2<'this>(
+        &'this self,
+        data: &'this mut Self::Inner,
+        pool: Pool<Sqlite>,
+    ) -> impl Future<Output = ()> + Send + 'this {
+        async move {
+            let local_id = data.0.unwrap();
+            let mut st = insert_many(
+                self.spec.conjuction_table.to_string(),
+            )
+            .columns(vec![
+                self.spec.base_id.clone(),
+                self.spec.destination_id.clone(),
+            ])
+            .values(
+                self.input
+                    .iter()
+                    .map(|id| (local_id, *id))
+                    .collect(),
+            );
+            st.execute(&pool).await.unwrap();
+
+            let mut st =
+                SelectSt::init(T::table_name().to_string());
+
+            st.where_(or(self
+                .input
+                .iter()
+                .cloned()
+                .map(|e| col("id").eq(e))
+                .collect()));
+
+            T::on_select(&mut st);
+
+            let res = st
+                .fetch_all(&pool, |r| Ok(T::from_row_scoped(&r)))
+                .await
+                .unwrap();
+
+            *&mut data.1 = res;
+        }
+    }
+
+    fn take(self, data: Self::Inner) -> Self::Output {
+        // todo!()
+        self.input
+            .into_iter()
+            .zip(data.1)
+            .map(|(id, data)| SimpleOutput { id, attr: data })
+            .collect()
+    }
+}
+
+impl<B, T> UpdateOneWorker
+    for UpdateIdWorker<B, T, ManyToMany, Vec<UpdateIdInput>>
+where
+    B: Collection<Sqlite>,
+    T: Collection<Sqlite>,
+{
+    type Inner = (Option<i64>, Vec<i64>);
+
+    type Output = Vec<i64>;
+
+    fn from_row(&self, data: &mut Self::Inner, row: &SqliteRow) {
+        *&mut data.0 = Some(row.get("id"));
+    }
+
+    fn sub_op2<'this>(
+        &'this self,
+        data: &'this mut Self::Inner,
+        pool: Pool<Sqlite>,
+    ) -> impl Future<Output = ()> + Send + 'this {
+        async move {
+            let mut new = vec![];
+            let mut remove = vec![];
+
+            let base_id = data.0.unwrap();
+
+            for each in self.input.iter() {
+                match each {
+                    UpdateIdInput::remove_link(id) => {
+                        remove.push(id.clone())
                     }
-                },
-
-                "from_insert_one" => {
-                    match from_value::<InsertInput<Vec<Id>>>(
-                        input,
-                    ) {
-
-                            Ok(InsertInput {
-                            id: true, 
-                            attributes: true,
-                            data,}) => {
-                                    return Box::new(ManyToManyInsertOne {
-                                        _db: PhantomData,
-                                        schema_key: self.schema_key,
-                                        conj_table: self.conj_table,
-                                        ft: self.rel_t,
-                                        fk: self.rel_fk,
-                                        lk: self.base_fk,
-                                        input: data.into_iter().map(|e| e.id).collect(),
-                                        related_entity: Box::new(
-                                            EntityPhantom::<Related>(
-                                                PhantomData,
-                                            ),
-                                        ),
-                                        output: Default::default(),
-
-                                    });
-                                }
-                        _ => panic!("insert_one's many-to-many relation support the following format {}", "")
+                    UpdateIdInput::set_link(id) => {
+                        new.push((base_id, id.clone()));
                     }
-                }
-
-                "from_get_all" | "from_get_one" => {
-                    match from_value::<RelationStructure<()>>(
-                        input,
-                    ) {
-                        Ok(RelationStructure {
-                            id: true,
-                            attributes: true,
-                            ..
-                        }) => {
-                            return Box::new(ManyToManyGetAll {
-                                _db: PhantomData,
-                                schema_key: self.schema_key,
-                                conj_table: self.conj_table,
-                                data: Default::default(),
-                                related_entity: Box::new(
-                                    EntityPhantom::<Related>(
-                                        PhantomData,
-                                    ),
-                                ),
-                                ft: self.rel_t,
-                                fk: self.rel_fk,
-                                lk: self.base_fk,
-                            });
-                        }
-                        _ => {
-                            panic!("get_all input only supports {{'id': true, 'attributes': true }}")
-                        }
-                    };
-                }
-                _ => {
-                    todo!("unsupported query {}", origin)
                 }
             }
-        }
-    }
 
-    pub struct ManyToManyUpdateConnect<S> {
-        pub schema_key: &'static str,
-        pub conj_table: &'static str,
-        pub ft: &'static str,
-        pub fk: &'static str,
-        pub lk: &'static str,
-        pub input: Vec<i64>,
-        pub output: Vec<Value>,
-        pub related_entity: Box<dyn DynEntity<S>>,
-        pub _db: PhantomData<S>,
-    }
+            // exec all set_link
+            let mut new_st: InsertMany<Sqlite, _> = insert_many(
+                self.spec.conjuction_table.to_string(),
+            );
 
-    impl<S> DynRelation<S> for ManyToManyUpdateConnect<S>
-    where
-        S: Send + Database,
-        Option<i64>: Type<S>
-            + for<'d> Decode<'d, S>
-            + for<'e> Encode<'e, S>,
-        i64: Type<S>
-            + for<'d> Encode<'d, S>
-            + for<'d> Decode<'d, S>,
-        for<'s> &'s str: ColumnIndex<S::Row>,
-    {
-        fn sub_op2<'this>(
-            &'this mut self,
-            pool: Pool<S>,
-            id: i64,
-        ) -> Pin<Box<dyn Future<Output = ()> + 'this + Send>>
-        where
-            for<'s> &'s mut <S>::Connection:
-                Executor<'s, Database = S>,
-            S: Database + SupportNamedBind,
-        {
-            Box::pin(async move {
-                let str = format!("INSERT INTO {} ({}, {}) VALUES {}",
-                    self.conj_table,
-                    self.fk,
-                    self.lk,
-                    self.input.iter().map(|e| format!("({}, {})", e, id)).collect::<Vec<_>>().join(", ")
-                );
+            new_st
+                .columns(vec![
+                    self.spec.base_id.to_string(),
+                    self.spec.destination_id.to_string(),
+                ])
+                .values(new)
+                .execute(&pool.clone())
+                .await
+                .unwrap();
 
-                let res = stmt::StringQuery { sql: str, input: () }.execute(&pool).await.unwrap();
+            // exec all remove_id
+            let mut rem_st = DeleteSt::init(
+                self.spec.conjuction_table.to_string(),
+            );
 
-                let str = format!("SELECT * FROM {} LEFT JOIN {} ON id = {} WHERE {}.{} = {id}",
-                    self.related_entity.table_name(),
-                    // self.input.iter().map(|e| format!("id = {}", e)).collect::<Vec<_>>().join(" OR ")
-                    self.conj_table,
-                    self.fk,
-                    self.conj_table,
-                    self.lk,
-                );
-
-                let res = stmt::StringQuery { sql: str, input: () }.fetch_all(&pool, |row| {
-                    let value = self.related_entity.from_row2(&row)?;
-                    let id : i64 = row.get("id");
-                    return Ok(json!({
-                        "id": id,
-                        "attributes": value,
-                    })); 
-                }).await.unwrap();
-
-                self.output = res;
-            })
-        }
-        fn take2(&mut self, base_id: i64) -> Option<Value> {
-            warn!("deprication: I don't need base_id");
-            Some(take(&mut self.output).into())
-        }
-        fn schema_key(&self) -> &str {
-            self.schema_key
-        }
-        fn on_update(&self, st: &mut UpdateSt<S, QuickQuery<'_>>)
-    where
-        S: Database + SupportNamedBind {
-// no op
-        }
-        fn on_select(&self, st: &mut SelectSt<S, QuickQuery<'_>,PanicOnUnsafe>)
-        where
-            S: SupportNamedBind + Database,
-        {
-            // no op
-        }
-
-        fn from_row(&mut self, row: &S::Row)
-        where
-            S: Database,
-        {
-            // no op
-        }
-
-        fn take(&mut self) -> Option<Value> {
-            None
-        }
-    }
-    pub struct ManyToManyInsertOne<S> {
-        pub schema_key: &'static str,
-        pub conj_table: &'static str,
-        pub ft: &'static str,
-        pub fk: &'static str,
-        pub lk: &'static str,
-        pub input: Vec<i64>,
-        pub output: Vec<Value>,
-        pub related_entity: Box<dyn DynEntity<S>>,
-        pub _db: PhantomData<S>,
-    }
-
-
-    impl<S> DynRelation<S> for ManyToManyInsertOne<S>
-    where
-        S: Send + Database,
-        Option<i64>: Type<S>
-            + for<'d> Decode<'d, S>
-            + for<'e> Encode<'e, S>,
-        i64: Type<S>
-            + for<'d> Encode<'d, S>
-            + for<'d> Decode<'d, S>,
-        for<'s> &'s str: ColumnIndex<S::Row>,
-    {
-        fn sub_op2<'this>(
-            &'this mut self,
-            pool: Pool<S>,
-            id: i64,
-        ) -> Pin<Box<dyn Future<Output = ()> + 'this + Send>>
-        where
-            for<'s> &'s mut <S>::Connection:
-                Executor<'s, Database = S>,
-            S: Database + SupportNamedBind,
-        {
-            Box::pin(async move {
-                let str = format!("INSERT INTO {} ({}, {}) VALUES {}",
-                    self.conj_table,
-                    self.fk,
-                    self.lk,
-                    self.input.iter().map(|e| format!("({}, {})", e, id)).collect::<Vec<_>>().join(", ")
-                );
-
-                let res = stmt::StringQuery { sql: str, input: ()}.execute(&pool).await.unwrap();
-
-                let str = format!("SELECT * FROM {} WHERE {}",
-                    self.related_entity.table_name(),
-                    self.input.iter().map(|e| format!("id = {}", e)).collect::<Vec<_>>().join(" OR ")
-                );
-
-                let res = stmt::StringQuery { sql: str, input: ()}.fetch_all(&pool, |row| {
-                    let value = self.related_entity.from_row2(&row)?;
-                    let id : i64 = row.get("id");
-                    return Ok(json!({
-                        "id": id,
-                        "attributes": value,
-                    })); 
-                }).await.unwrap();
-
-                self.output = res;
-            })
-        }
-        fn take2(&mut self, base_id: i64) -> Option<Value> {
-            warn!("deprication: I don't need base_id");
-            Some(take(&mut self.output).into())
-        }
-        fn schema_key(&self) -> &str {
-            self.schema_key
-        }
-        fn on_select(&self, st: &mut SelectSt<S, QuickQuery<'_>, PanicOnUnsafe>)
-        where
-            S: SupportNamedBind + Database,
-        {
-            // no op
-        }
-
-        fn from_row(&mut self, row: &S::Row)
-        where
-            S: Database,
-        {
-            // no op
-        }
-
-        fn take(&mut self) -> Option<Value> {
-            None
-        }
-    }
-    pub struct ManyToManyGetAll<S> {
-        pub schema_key: &'static str,
-        pub conj_table: &'static str,
-        pub ft: &'static str,
-        pub fk: &'static str,
-        pub lk: &'static str,
-        pub data: Vec<(i64, i64, Value)>,
-        pub related_entity: Box<dyn DynEntity<S>>,
-        pub _db: PhantomData<S>,
-    }
-
-    impl<S> DynRelation<S> for ManyToManyGetAll<S>
-    where
-        S: Send + Database,
-        Option<i64>: Type<S>
-            + for<'d> Decode<'d, S>
-            + for<'e> Encode<'e, S>,
-        i64: Type<S>
-            + for<'d> Encode<'d, S>
-            + for<'d> Decode<'d, S>,
-        for<'s> &'s str: ColumnIndex<S::Row>,
-    {
-        fn sub_op<'this>(
-            &'this mut self,
-            pool: Pool<S>,
-            limit: Arc<dyn super::SelectStLimit<S>>,
-        ) -> Pin<Box<dyn Future<Output = ()> + 'this + Send>>
-        where
-            for<'s> &'s mut <S>::Connection:
-                Executor<'s, Database = S>,
-            S: Database + SupportNamedBind,
-        {
-            Box::pin(async move {
-                let mut st = stmt::SelectSt::init(self.conj_table);
-
-                self.related_entity.on_select(&mut st);
-
-                st.select(
-                    ft(self.conj_table.to_string())
-                        .col(self.fk.to_string())
-                        .alias("related_key"),
-                );
-                st.select(
-                    ft(self.conj_table.to_string())
-                        .col(self.lk.to_string())
-                        .alias("base_key"),
-                );
-
-                limit.limit(&mut st);
-
-                st.join(Join {
-                    ty: join_type::Left,
-                    on_table: self.ft,
-                    on_column: "id",
-                    local_column: self.fk,
-                });
-
-                let vals = st
-                    .fetch_all(&pool, |row| {
-                        let val = self
-                            .related_entity
-                            .from_row2(&row)?;
-                        Ok((
-                            row.get("related_key"),
-                            row.get("base_key"),
-                            val,
-                        ))
-                    })
-                    .await
-                    .unwrap();
-
-                self.data = vals;
-            })
-        }
-        fn take2(&mut self, base_id: i64) -> Option<Value> {
-            let val = self
-                .data
-                .iter()
-                .filter_map(|e| {
-                    if e.1 != base_id {
-                        return None;
-                    }
-                    Some(json! ({
-                        "id": e.0,
-                        "attributes": e.2
-                    }))
+            rem_st.where_(or(remove
+                .into_iter()
+                .map(|e| {
+                    col(self.spec.destination_id.to_string())
+                        .eq(e)
                 })
-                .collect::<Vec<_>>();
-            Some(val.into())
-        }
-        fn schema_key(&self) -> &str {
-            self.schema_key
-        }
-        fn on_select(&self, st: &mut SelectSt<S, QuickQuery<'_>, PanicOnUnsafe>)
-        where
-            S: SupportNamedBind + Database,
-        {
-            // no op
-        }
+                .collect()));
 
-        fn from_row(&mut self, row: &S::Row)
-        where
-            S: Database,
-        {
-            // no op
-        }
+            rem_st.execute(&pool).await.unwrap();
 
-        fn take(&mut self) -> Option<Value> {
-            None
+            // populate more data
+            let mut st = SelectSt::init(
+                self.spec.conjuction_table.to_string(),
+            );
+
+            // st.select(col(self.spec.destination_id.to_string()));
+            st.select(self.spec.destination_id.to_owned());
+
+            st.where_(
+                col(self.spec.base_id.clone()).eq(base_id),
+            );
+
+            let res = st
+                .fetch_all(&pool, |r| {
+                    let r: i64 = r.get(0);
+                    Ok(r)
+                })
+                .await
+                .unwrap();
+
+            *&mut data.1 = res
         }
     }
+
+    fn take(self, data: Self::Inner) -> Self::Output {
+        data.1
+    }
+}
+
+impl<F, T> GetAllWorker for ManyWorker<F, T, ManyToMany>
+where
+    F: Collection<Sqlite>,
+    T: Collection<Sqlite>,
+{
+    type Inner = HashMap<i64, Vec<SimpleOutput<T>>>;
+
+    type Output = Vec<SimpleOutput<T>>;
+
+    fn from_row(&self, data: &mut Self::Inner, row: &SqliteRow) {
+        let local_id = row.get("local_id");
+        data.insert(local_id, vec![]);
+    }
+
+    fn sub_op<'this>(
+        &'this self,
+        data: &'this mut Self::Inner,
+        pool: Pool<Sqlite>,
+    ) -> impl Future<Output = ()> + Send + 'this {
+        async move {
+            let mut st = SelectSt::init(
+                self.spec.conjuction_table.to_string(),
+            );
+
+            let id_set =
+                data.keys().cloned().collect::<Vec<_>>();
+
+            st.select_aliased(
+                &self.spec.conjuction_table,
+                &self.spec.base_id,
+                "from_id",
+            );
+
+            st.select_aliased(
+                &self.spec.conjuction_table,
+                &self.spec.destination_id,
+                "dest_id",
+            );
+
+            st.where_(or(id_set
+                .into_iter()
+                .map(|id| {
+                    let id = id.clone();
+                    col(self.spec.base_id.clone()).eq(id)
+                })
+                .collect()));
+
+            st.left_join(join {
+                on_table: T::table_name().to_string(),
+                on_column: "id".to_string(),
+                local_column: self.spec.destination_id.clone(),
+            });
+
+            T::on_select(&mut st);
+
+            let res = st
+                .fetch_all(&pool, |r| {
+                    let id = r.get("dest_id");
+                    let from_id = r.get("from_id");
+                    let attr = T::from_row_scoped(&r);
+                    data.get_mut(&from_id)
+                        .unwrap()
+                        .push(SimpleOutput { id, attr });
+
+                    Ok(())
+                })
+                .await
+                .unwrap();
+        }
+    }
+
+    fn take(
+        &mut self,
+        current_id: i64,
+        data: &mut Self::Inner,
+    ) -> Self::Output {
+        data.remove(&current_id).unwrap()
+    }
+}

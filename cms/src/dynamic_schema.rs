@@ -14,11 +14,12 @@ use serde_json::{from_value, Value};
 use sqlx::{sqlite::SqliteRow, Pool, Sqlite};
 use tokio::sync::RwLock;
 
-use crate::orm::Collection;
+use crate::traits::Collection;
 
 use super::{
     error::{self, insert::InsertError, GlobalError},
     operations::{
+        delete_one::DynDeleteWorker,
         insert_one::InsertOneWorker, select_many::GetAllWorker,
         update_one::UpdateOneWorker,
     },
@@ -88,6 +89,12 @@ pub trait CompleteRelationForServer:
         to: &str,
         input: Value,
     ) -> DynamicRelationResult<Box<dyn DynGetManyWorker>>;
+    fn init_on_delete(
+        self: Arc<Self>,
+        to: &str,
+    ) -> DynamicRelationResult<Box<dyn DynDeleteWorker>> {
+        DynamicRelationResult::NotFound
+    }
     fn init_on_get(
         self: Arc<Self>,
         to: &str,
@@ -96,7 +103,7 @@ pub trait CompleteRelationForServer:
 }
 
 pub trait DynUpdateOneWorker: Send + Sync {
-    fn on_update(&mut self, st: &mut UpdateSt);
+    fn on_update(&mut self, st: &mut UpdateSt<Sqlite>);
     fn from_row(&mut self, row: &SqliteRow);
     fn sub_op1<'this>(
         &'this mut self,
@@ -115,7 +122,7 @@ where
     RW: UpdateOneWorker,
     RW::Output: Serialize,
 {
-    fn on_update(&mut self, st: &mut UpdateSt) {
+    fn on_update(&mut self, st: &mut UpdateSt<Sqlite>) {
         RW::on_update(
             self.rw.as_ref().expect("should not be taken"),
             &mut self.inner,
@@ -169,7 +176,7 @@ where
 }
 
 pub trait DynInsertOneWorker: Send + Sync {
-    fn on_insert(&mut self, st: &mut InsertSt);
+    fn on_insert(&mut self, st: &mut InsertSt<Sqlite>);
     fn from_row(&mut self, row: &SqliteRow);
     fn sub_op1<'this>(
         &'this mut self,
@@ -188,7 +195,7 @@ where
     RW: InsertOneWorker,
     RW::Output: Serialize,
 {
-    fn on_insert(&mut self, st: &mut InsertSt) {
+    fn on_insert(&mut self, st: &mut InsertSt<Sqlite>) {
         RW::on_insert(
             self.rw.as_ref().expect("should not be taken"),
             &mut self.inner,
@@ -257,7 +264,7 @@ impl fmt::Debug for dyn CompleteRelationForServer {
 }
 
 pub trait DynGetManyWorker: Send + Sync {
-    fn on_select(&mut self, st: &mut SelectSt);
+    fn on_select(&mut self, st: &mut SelectSt<Sqlite>);
     fn from_row(&mut self, row: &SqliteRow);
     fn sub_op<'this>(
         &'this mut self,
@@ -266,7 +273,7 @@ pub trait DynGetManyWorker: Send + Sync {
     fn take(&mut self, current_id: i64) -> Value;
 }
 pub trait DynGetOneWorker: Send + Sync {
-    fn on_select(&mut self, st: &mut SelectSt);
+    fn on_select(&mut self, st: &mut SelectSt<Sqlite>);
     fn from_row(&mut self, row: &SqliteRow);
     fn sub_op<'this>(
         &'this mut self,
@@ -300,7 +307,7 @@ where
     RW: GetOneWorker,
     RW::Output: Serialize,
 {
-    fn on_select(&mut self, st: &mut SelectSt) {
+    fn on_select(&mut self, st: &mut SelectSt<Sqlite>) {
         RW::on_select(
             self.rw.as_ref().expect("should not be taken"),
             &mut self.inner,
@@ -345,7 +352,7 @@ where
     RW: GetAllWorker,
     RW::Output: Serialize,
 {
-    fn on_select(&mut self, st: &mut SelectSt) {
+    fn on_select(&mut self, st: &mut SelectSt<Sqlite>) {
         RW::on_select(
             self.rw.as_ref().expect("should not be taken"),
             &mut self.inner,
@@ -388,14 +395,7 @@ where
 pub trait DynCollection: Send + Sync + 'static {
     fn table_name(&self) -> &str;
     // all scoped
-    fn on_select(
-        &self,
-        stmt: &mut stmt::SelectSt<
-            sqlx::Sqlite,
-            QuickQuery,
-            PanicOnUnsafe,
-        >,
-    );
+    fn on_select(&self, stmt: &mut SelectSt<Sqlite>);
 
     // all scoped, no modification
     fn from_row_scoped(
@@ -410,12 +410,12 @@ pub trait DynCollection: Send + Sync + 'static {
     fn on_insert(
         &self,
         input: Value,
-        stmt: &mut stmt::InsertStOne<'_, Sqlite>,
+        stmt: &mut InsertSt<Sqlite>,
     ) -> Result<(), ValidatedAndTyped>;
     fn on_update(
         &self,
         input: Value,
-        stmt: &mut UpdateSt,
+        stmt: &mut UpdateSt<Sqlite>,
     ) -> Result<(), ValidatedAndTyped>;
 }
 
@@ -461,19 +461,19 @@ impl From<ValidatedAndTyped> for InsertError {
 
 impl<T> DynCollection for PhantomData<T>
 where
+    T: Collection<Sqlite> + Serialize + 'static,
     T: DeserializeOwned,
     T::PartailCollection: DeserializeOwned,
-    T: Collection + Serialize + 'static,
 {
     fn on_update(
         &self,
         input: Value,
-        stmt: &mut stmt::UpdateSt<Sqlite, QuickQuery>,
+        stmt: &mut UpdateSt<Sqlite>,
     ) -> Result<(), ValidatedAndTyped> {
         let v = from_value::<T::PartailCollection>(input)
             .map_err(|e| ValidatedAndTyped::TypeError(e))?;
 
-        T::on_update1(stmt, v).map_err(|e| {
+        T::on_update(stmt, v).map_err(|e| {
             ValidatedAndTyped::ValidationError(e)
         })?;
 
@@ -483,40 +483,33 @@ where
     fn on_insert(
         &self,
         input: Value,
-        stmt: &mut stmt::InsertStOne<'_, Sqlite>,
+        stmt: &mut InsertSt<Sqlite>,
     ) -> Result<(), ValidatedAndTyped> {
         let v = from_value::<T>(input)
             .map_err(|e| ValidatedAndTyped::TypeError(e))?;
 
-        T::on_insert1(v, stmt).map_err(|e| {
+        T::on_insert(v, stmt).map_err(|e| {
             ValidatedAndTyped::ValidationError(e)
         })?;
 
         Ok(())
     }
     fn table_name(&self) -> &str {
-        T::table_name1()
+        T::table_name()
     }
 
-    fn on_select(
-        &self,
-        stmt: &mut stmt::SelectSt<
-            sqlx::Sqlite,
-            QuickQuery,
-            PanicOnUnsafe,
-        >,
-    ) {
-        T::on_select1(stmt)
+    fn on_select(&self, stmt: &mut SelectSt<Sqlite>) {
+        T::on_select(stmt)
     }
     fn from_row_scoped(&self, row: &SqliteRow) -> Value {
-        let t = T::from_row_scoped2(row);
+        let t = T::from_row_scoped(row);
         serde_json::to_value(t).unwrap()
     }
     fn from_row_noscope(
         &self,
         row: &sqlx::sqlite::SqliteRow,
     ) -> Value {
-        let t = T::from_row_noscope2(row);
+        let t = T::from_row_noscope(row);
         serde_json::to_value(t).unwrap()
     }
 }

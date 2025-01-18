@@ -11,10 +11,13 @@ use serde_json::{Map, Value};
 use sqlx::{sqlite::SqliteRow, Row};
 use sqlx::{Pool, Sqlite};
 
-use crate::orm::{
+use crate::{
     dynamic_schema::{
         DynamicRelationResult, COLLECTIONS, RELATIONS,
-    }, error::{self, GlobalError}, queries::{AgnosticFilter, Filters}, queries_bridge::SelectSt
+    },
+    error::{self, GlobalError},
+    filters::{AgnosticFilter, Filters},
+    queries_bridge::SelectSt,
 };
 
 use super::select_one::{GetOneOuputDynamic, GetOneWorker};
@@ -25,7 +28,7 @@ pub trait GetAllWorker: Sync + Send {
     fn on_select(
         &self,
         data: &mut Self::Inner,
-        st: &mut SelectSt,
+        st: &mut SelectSt<Sqlite>,
     ) {
     }
     fn from_row(&self, data: &mut Self::Inner, row: &SqliteRow) {
@@ -126,10 +129,10 @@ pub async fn get_all_dynamic(
 
     input.0.pagination.on_select(&mut st);
 
-    st.select(
-        ft(collection.table_name().to_string())
-            .col("id".to_string())
-            .alias("local_id".to_string()),
+    st.select_aliased(
+        collection.table_name().to_string(),
+        "id".to_string(),
+        "local_id",
     );
 
     let mut res = st

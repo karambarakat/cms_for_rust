@@ -4,14 +4,12 @@ use sqlx::Database;
 
 use crate::{
     execute_no_cache::ExecuteNoCacheUsingSelectTrait,
-    ident_safety::PanicOnUnsafe,
-    returning::ReturningClause,
-    sql_part::{AcceptToSqlPart, ToSqlPart, WhereItemToSqlPart},
-    Accept, InitStatement, Query, Statement, SupportNamedBind,
-    SupportReturning, WhereItem,
+    ident_safety::PanicOnUnsafe, returning::ReturningClause,
+    Accept, BindItem, Query, QueryHandlers, Statement,
+    SupportNamedBind, SupportReturning,
 };
 
-pub struct UpdateSt<S, Q: Query<S>, R = ()> {
+pub struct UpdateSt<S, Q: Query, R = ()> {
     pub(crate) sets: Vec<(String, Q::SqlPart)>,
     pub(crate) where_clause: Vec<Q::SqlPart>,
     pub(crate) ctx: Q::Context1,
@@ -20,23 +18,22 @@ pub struct UpdateSt<S, Q: Query<S>, R = ()> {
     pub(crate) _sqlx: PhantomData<S>,
 }
 
-impl<S, Q: Query<S>, R> UpdateSt<S, Q, R> {
+impl<S, Q: Query, R> UpdateSt<S, Q, R> {
     pub fn set_len(&self) -> usize {
         self.sets.len()
     }
 }
 
-impl<S, Q: Query<S>, R> ExecuteNoCacheUsingSelectTrait
+impl<S, Q: Query, R> ExecuteNoCacheUsingSelectTrait
     for UpdateSt<S, Q, R>
 {
 }
 
-impl<S, Q> InitStatement<Q> for UpdateSt<S, Q, ()>
+impl<S, Q> UpdateSt<S, Q, ()>
 where
-    Q: Query<S>,
+    Q: Query,
 {
-    type Init = String;
-    fn init(init: Self::Init) -> Self {
+    pub fn init(init: String) -> Self {
         UpdateSt {
             sets: Vec::new(),
             where_clause: Vec::new(),
@@ -50,7 +47,7 @@ where
 impl<S, Q, R> Statement<S, Q> for UpdateSt<S, Q, R>
 where
     S: Database + SupportNamedBind,
-    Q: Query<S>,
+    Q: Query,
     R: ReturningClause,
 {
     fn deref_ctx(&self) -> &Q::Context1 {
@@ -60,7 +57,7 @@ where
         &mut self.ctx
     }
 
-    fn _build(self) -> (String, <Q as Query<S>>::Output) {
+    fn _build(self) -> (String, <Q as Query>::Output) {
         self.build()
     }
 }
@@ -69,14 +66,14 @@ impl<'q, S, R, Q> UpdateSt<S, Q, R>
 where
     S: SupportNamedBind,
     S: Database,
-    Q: Query<S>,
+    Q: Query,
 {
     pub fn build(self) -> (String, Q::Output)
     where
         R: ReturningClause,
         S: Database + SupportNamedBind,
     {
-        <Q as Query<S>>::build_query(self.ctx, |ctx| {
+        <Q as Query>::build_query(self.ctx, |ctx| {
             let mut str = String::from("UPDATE ");
 
             str.push_str(&self.table);
@@ -96,7 +93,7 @@ where
                 str.push_str(&column);
                 str.push_str(" = ");
                 str.push_str(
-                    &<Q as Query<S>>::build_sql_part_back(
+                    &<Q as Query>::build_sql_part_back(
                         ctx, value,
                     ),
                 );
@@ -111,7 +108,7 @@ where
                     str.push_str(" AND ");
                 }
                 str.push_str(
-                    &<Q as Query<S>>::build_sql_part_back(
+                    &<Q as Query>::build_sql_part_back(
                         ctx, where_item,
                     ),
                 );
@@ -124,7 +121,7 @@ where
     }
 }
 
-impl<S, Q: Query<S>> UpdateSt<S, Q, ()> {
+impl<S, Q: Query> UpdateSt<S, Q, ()> {
     pub fn returning_<R>(
         self,
         cols: Vec<R>,
@@ -156,24 +153,22 @@ impl<S, Q: Query<S>> UpdateSt<S, Q, ()> {
         }
     }
 }
-impl<S, Q: Query<S>, R> UpdateSt<S, Q, R> {
+
+impl<S, Q: QueryHandlers<S>, R> UpdateSt<S, Q, R> {
     pub fn set<T>(&mut self, column: String, value: T)
     where
         Q: Accept<T, S>,
-        AcceptToSqlPart<T>: ToSqlPart<Q, S>,
     {
-        let part =
-            AcceptToSqlPart(value).to_sql_part(&mut self.ctx);
+        let part = Q::handle_accept(value, &mut self.ctx);
         self.sets.push((column, part));
     }
 
     pub fn where_<I>(&mut self, item: I)
     where
-        I: WhereItem<S, Q, PanicOnUnsafe> + 'static,
-        WhereItemToSqlPart<I>: ToSqlPart<Q, S>,
+        I: BindItem<S, Q> + 'static,
+        
     {
-        let item =
-            WhereItemToSqlPart(item).to_sql_part(&mut self.ctx);
+        let item = Q::handle_bind_item(item, &mut self.ctx);
         self.where_clause.push(item);
     }
 }

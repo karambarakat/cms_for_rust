@@ -4,13 +4,11 @@ use sqlx::Database;
 
 use crate::{
     execute_no_cache::ExecuteNoCacheUsingSelectTrait,
-    ident_safety::PanicOnUnsafe,
-    returning::ReturningClause,
-    sql_part::{ToSqlPart, WhereItemToSqlPart},
-    InitStatement, Query, Statement, SupportNamedBind,
+    ident_safety::PanicOnUnsafe, returning::ReturningClause,
+    BindItem, Query, QueryHandlers, Statement, SupportNamedBind,
 };
 
-pub struct DeleteSt<S, Q: Query<S>, R = ()> {
+pub struct DeleteSt<S, Q: Query, R = ()> {
     pub(crate) where_clause: Vec<Q::SqlPart>,
     pub(crate) ctx: Q::Context1,
     pub(crate) table: String,
@@ -21,16 +19,15 @@ pub struct DeleteSt<S, Q: Query<S>, R = ()> {
 impl<S, Q, R> ExecuteNoCacheUsingSelectTrait
     for DeleteSt<S, Q, R>
 where
-    Q: Query<S>,
+    Q: Query,
 {
 }
 
-impl<S, Q> InitStatement<Q> for DeleteSt<S, Q, ()>
+impl<S, Q> DeleteSt<S, Q, ()>
 where
-    Q: Query<S>,
+    Q: Query,
 {
-    type Init = String;
-    fn init(init: Self::Init) -> Self {
+    pub fn init(init: String) -> Self {
         DeleteSt {
             where_clause: Vec::new(),
             ctx: Default::default(),
@@ -44,22 +41,20 @@ impl<S, Q, R> Statement<S, Q> for DeleteSt<S, Q, R>
 where
     R: ReturningClause,
     S: Database + SupportNamedBind,
-    Q: Query<S>,
+    Q: Query,
 {
-    fn deref_ctx(&self) -> &<Q as Query<S>>::Context1 {
+    fn deref_ctx(&self) -> &<Q as Query>::Context1 {
         &self.ctx
     }
-    fn deref_mut_ctx(
-        &mut self,
-    ) -> &mut <Q as Query<S>>::Context1 {
+    fn deref_mut_ctx(&mut self) -> &mut <Q as Query>::Context1 {
         &mut self.ctx
     }
-    fn _build(self) -> (String, <Q as Query<S>>::Output) {
+    fn _build(self) -> (String, <Q as Query>::Output) {
         self.build()
     }
 }
 
-impl<S, Q: Query<S>> DeleteSt<S, Q> {
+impl<S, Q: Query> DeleteSt<S, Q> {
     pub fn returning(
         self,
         returning: Vec<&'static str>,
@@ -74,14 +69,13 @@ impl<S, Q: Query<S>> DeleteSt<S, Q> {
     }
 }
 
-impl<S, Q: Query<S>> DeleteSt<S, Q> {
+impl<S, Q: Query> DeleteSt<S, Q> {
     pub fn where_<W>(&mut self, item: W)
     where
-        W: crate::WhereItem<S, Q, PanicOnUnsafe> + 'static,
-        WhereItemToSqlPart<W>: ToSqlPart<Q, S>,
+        W: BindItem<S, Q> + 'static,
+        Q: QueryHandlers<S>,
     {
-        let item =
-            WhereItemToSqlPart(item).to_sql_part(&mut self.ctx);
+        let item = Q::handle_bind_item(item, &mut self.ctx);
         self.where_clause.push(item);
     }
 }
@@ -91,10 +85,10 @@ where
     S: SupportNamedBind,
     S: Database,
     R: ReturningClause,
-    Q: Query<S>,
+    Q: Query,
 {
     pub fn build(self) -> (String, Q::Output) {
-        <Q as Query<S>>::build_query(self.ctx, |ctx| {
+        <Q as Query>::build_query(self.ctx, |ctx| {
             let mut str = String::from("DELETE FROM ");
 
             str.push_str(&self.table);
@@ -108,7 +102,7 @@ where
                     str.push_str(" AND ");
                 }
                 str.push_str(
-                    &<Q as Query<S>>::build_sql_part_back(
+                    &<Q as Query>::build_sql_part_back(
                         ctx, where_item,
                     ),
                 );

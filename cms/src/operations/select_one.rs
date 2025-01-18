@@ -19,18 +19,15 @@ use sqlx::{Database, Pool, Sqlite};
 
 use crate::{
     build_tuple::BuildTuple,
-    // coll::client::{Category, Tag, Todo},
-    orm::{
-        dynamic_schema::{
-            DynGetOneWorker, DynamicRelationResult, COLLECTIONS,
-            RELATIONS,
-        },
-        error::{self, GlobalError},
-        queries::{ById, Filters},
-        queries_bridge::SelectSt,
-        relations::{relation, LinkData, Relation},
-        Collection,
+    dynamic_schema::{
+        DynGetOneWorker, DynamicRelationResult, COLLECTIONS,
+        RELATIONS,
     },
+    error::{self, GlobalError},
+    filters::{ById, Filters},
+    queries_bridge::SelectSt,
+    relations::{relation, LinkData, Relation},
+    traits::Collection,
     tuple_index::{tuple_as_map::TupleElementKey, TupleAsMap},
 };
 
@@ -40,7 +37,7 @@ pub trait GetOneWorker: Sync + Send {
     fn on_select(
         &self,
         data: &mut Self::Inner,
-        st: &mut SelectSt,
+        st: &mut SelectSt<Sqlite>,
     ) {
     }
     fn from_row(&self, data: &mut Self::Inner, row: &SqliteRow) {
@@ -137,7 +134,7 @@ pub struct GetOneOutput<C, D> {
 
 impl<C, R, Q> GetOneOp<C, R, Q>
 where
-    C: Collection,
+    C: Collection<Sqlite>,
     R: GetOneWorker + Send + Sync,
     Q: Filters<C>,
 {
@@ -146,15 +143,15 @@ where
         db: Pool<Sqlite>,
     ) -> Option<GetOneOutput<C, TupleAsMap<R::Output>>> {
         let mut st =
-            stmt::SelectSt::init(C::table_name1().to_string());
+            stmt::SelectSt::init(C::table_name().to_string());
 
-        st.select(
-            ft(C::table_name1().to_string())
-                .col("id".to_string())
-                .alias("local_id".to_string()),
+        st.select_aliased(
+            C::table_name().to_string(),
+            "id".to_string(),
+            "local_id",
         );
 
-        C::on_select1(&mut st);
+        C::on_select(&mut st);
         self.queries.on_select(&mut st);
 
         let mut worker_data = R::Inner::default();
@@ -164,7 +161,7 @@ where
         let res = st
             .fetch_optional(&db, |r| {
                 let id: i64 = r.get("local_id");
-                let attr = C::from_row_noscope2(&r);
+                let attr = C::from_row_noscope(&r);
                 self.links.from_row(&mut worker_data, &r);
                 Ok(GetOneOutput {
                     id,
@@ -261,13 +258,16 @@ pub async fn get_one_dynamic(
     }
 
     collection.on_select(&mut st);
-    st.select(
-        ft(collection.table_name().to_string())
-            .col("id".to_string())
-            .alias("local_id".to_string()),
+
+    st.select_aliased(
+        collection.table_name().to_string(),
+        "id".to_string(),
+        "local_id",
     );
+
     let id = input.0.id;
-    st.where_(col("local_id".to_string()).eq(move || id));
+
+    st.where_(col("local_id").eq(id));
 
     let mut res = st
         .fetch_optional(&db.0, |r| {

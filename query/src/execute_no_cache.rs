@@ -189,7 +189,7 @@ impl<'q, S, Q, T> ExecuteNoCache<'q, S, Q> for T
 where
     S: Database,
     T: Statement<S, Q> + ExecuteNoCacheUsingSelectTrait,
-    Q: Query<S, Output = <S as HasArguments<'q>>::Arguments>,
+    Q: Query<Output = <S as HasArguments<'q>>::Arguments>,
 {
     #[track_caller]
     fn build(

@@ -5,6 +5,8 @@ use inventory::Collect;
 use inventory::Registry;
 use std::collections::HashMap;
 
+pub use super::migration::run_migration;
+
 pub mod submit_migration_prelude {
     pub use crate::entities::EntityPhantom;
     pub use crate::migration::Submitable;

@@ -8,7 +8,7 @@ use crate::{
     ident_safety::PanicOnUnsafe, sql_part::{
         AcceptToSqlPart, ColumnToSqlPart, ConstraintToSqlPart,
         ToSqlPart, WhereItemToSqlPart,
-    }, Accept, Constraint, Query, SchemaColumn, SupportNamedBind, WhereItem
+    }, Accept, Constraint, Query, SchemaColumn, SupportNamedBind, BindItem
 };
 
 pub struct NamedBorrowedBuffer<'q>(PhantomData<&'q ()>);
@@ -64,7 +64,7 @@ impl<'q, T, S> ToSqlPart<NamedBorrowedBuffer<'q>, S>
     for WhereItemToSqlPart<T>
 where
     S: Database + SupportNamedBind,
-    T: WhereItem<S, NamedBorrowedBuffer<'q>, PanicOnUnsafe> + 'static,
+    T: BindItem<S, NamedBorrowedBuffer<'q>, PanicOnUnsafe> + 'static,
 {
     fn to_sql_part(
         self,
