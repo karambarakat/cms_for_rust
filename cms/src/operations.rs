@@ -278,12 +278,12 @@ mod test {
 
     async fn test_deep_populate(db: Pool<Sqlite>) {
         let res = get_one::<Todo>()
-            .link_data(
+            .relations_as::<Category, _, _>(|r| {
                 // in theory you can do multiple deep relations and/or go deeper
                 // for now this is only supported for one-time of
                 // C1 --optional_to_many--> C2 --optional_to_many_inverse--> C1
-                relation::<Category>().deep_populate::<Todo>(),
-            )
+                r.deep_populate::<Todo>()
+            })
             .exec_op(db.clone())
             .await;
 

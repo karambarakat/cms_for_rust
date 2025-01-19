@@ -21,7 +21,7 @@ pub struct SelectSt<S, Q: Query, I: IdentSafety> {
     pub(crate) _sqlx: PhantomData<(S, I)>,
 }
 
-impl<S, Q, I> ExecuteNoCacheUsingSelectTrait
+impl<'q, S, Q, I> ExecuteNoCacheUsingSelectTrait
     for SelectSt<S, Q, I>
 where
     I: IdentSafety,
@@ -29,10 +29,10 @@ where
 {
 }
 
-impl<S, Q: Query> SelectSt<S, Q, Q::IdentSafety> {
+impl<'q, S, Q: Query> SelectSt<S, Q, <Q as Query>::IdentSafety> {
     pub fn init<T: AsRef<str>>(from: T) -> Self
     where
-        Q::IdentSafety: AcceptTableIdent<T>,
+        <Q as Query>::IdentSafety: AcceptTableIdent<T>,
     {
         let ident_safety = Q::IdentSafety::init(Some(&from));
         SelectSt {
@@ -52,7 +52,7 @@ impl<S, Q: Query> SelectSt<S, Q, Q::IdentSafety> {
     }
 }
 
-impl<S, Q, I> Statement<S, Q> for SelectSt<S, Q, I>
+impl<'q, S, Q, I> Statement<S, Q> for SelectSt<S, Q, I>
 where
     Q: Query<IdentSafety = I>,
     I: IdentSafety,
@@ -233,6 +233,7 @@ where
     pub fn offset<T>(&mut self, shift: T)
     where
         Q: Accept<T, S>,
+        T: Send + 'static,
     {
         if self.shift.is_some() {
             panic!("limit has been set already");
@@ -246,6 +247,7 @@ where
     pub fn limit<T>(&mut self, limit: T)
     where
         Q: Accept<T, S>,
+        T: Send + 'static
     {
         if self.limit.is_some() {
             panic!("limit has been set already");
@@ -265,7 +267,7 @@ where
 
     pub fn where_<T>(&mut self, item: T)
     where
-        T: BindItem<S, Q> + 'static,
+        T: BindItem<S, Q, I> + 'static,
         Q: QueryHandlers<S>,
     {
         let item = Q::handle_bind_item(item, &mut self.ctx);

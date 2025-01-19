@@ -3,29 +3,26 @@ use std::marker::PhantomData;
 use sqlx::Database;
 
 use crate::{
-    execute_no_cache::ExecuteNoCacheUsingSelectTrait,
-    ident_safety::PanicOnUnsafe, returning::ReturningClause,
-    Accept, BindItem, Query, QueryHandlers, Statement,
-    SupportNamedBind, SupportReturning,
+    execute_no_cache::ExecuteNoCacheUsingSelectTrait, ident_safety::PanicOnUnsafe, returning::ReturningClause, Accept, AcceptColIdent, BindItem, IdentSafety, Query, QueryHandlers, Statement, SupportNamedBind, SupportReturning
 };
 
-pub struct UpdateSt<S, Q: Query, R = ()> {
-    pub(crate) sets: Vec<(String, Q::SqlPart)>,
+pub struct UpdateSt<S, Q: Query, I: IdentSafety, R = ()> {
+    pub(crate) sets: Vec<(I::Column, Q::SqlPart)>,
     pub(crate) where_clause: Vec<Q::SqlPart>,
     pub(crate) ctx: Q::Context1,
-    pub(crate) table: String,
+    pub(crate) table: I::Table,
     pub(crate) returning: R,
     pub(crate) _sqlx: PhantomData<S>,
 }
 
-impl<S, Q: Query, R> UpdateSt<S, Q, R> {
+impl<S, Q: Query, I: IdentSafety, R> UpdateSt<S, Q, I, R> {
     pub fn set_len(&self) -> usize {
         self.sets.len()
     }
 }
 
-impl<S, Q: Query, R> ExecuteNoCacheUsingSelectTrait
-    for UpdateSt<S, Q, R>
+impl<S, Q: Query, I: IdentSafety, R>
+    ExecuteNoCacheUsingSelectTrait for UpdateSt<S, Q, I, R>
 {
 }
 
@@ -44,7 +41,8 @@ where
         }
     }
 }
-impl<S, Q, R> Statement<S, Q> for UpdateSt<S, Q, R>
+impl<S, Q, I: IdentSafety, R> Statement<S, Q>
+    for UpdateSt<S, Q, I, R>
 where
     S: Database + SupportNamedBind,
     Q: Query,
@@ -62,11 +60,12 @@ where
     }
 }
 
-impl<'q, S, R, Q> UpdateSt<S, Q, R>
+impl<'q, S, R, Q, I> UpdateSt<S, Q, I, R>
 where
     S: SupportNamedBind,
     S: Database,
     Q: Query,
+    I: IdentSafety,
 {
     pub fn build(self) -> (String, Q::Output)
     where
@@ -76,7 +75,8 @@ where
         <Q as Query>::build_query(self.ctx, |ctx| {
             let mut str = String::from("UPDATE ");
 
-            str.push_str(&self.table);
+
+            str.push_str(self.table.as_ref());
 
             str.push_str(" SET ");
 
@@ -90,7 +90,7 @@ where
                 if index != 0 {
                     str.push_str(", ");
                 }
-                str.push_str(&column);
+                str.push_str(column.as_ref());
                 str.push_str(" = ");
                 str.push_str(
                     &<Q as Query>::build_sql_part_back(
@@ -121,11 +121,11 @@ where
     }
 }
 
-impl<S, Q: Query> UpdateSt<S, Q, ()> {
+impl<S, Q: Query,I: IdentSafety> UpdateSt<S, Q, I, ()> {
     pub fn returning_<R>(
         self,
         cols: Vec<R>,
-    ) -> UpdateSt<S, Q, Vec<R>>
+    ) -> UpdateSt<S, Q,I,  Vec<R>>
     where
         S: SupportReturning,
     {
@@ -142,7 +142,7 @@ impl<S, Q: Query> UpdateSt<S, Q, ()> {
     pub fn returning(
         self,
         cols: Vec<&'static str>,
-    ) -> UpdateSt<S, Q, Vec<&'static str>> {
+    ) -> UpdateSt<S, Q, I, Vec<&'static str>> {
         UpdateSt {
             sets: self.sets,
             where_clause: self.where_clause,
@@ -154,19 +154,22 @@ impl<S, Q: Query> UpdateSt<S, Q, ()> {
     }
 }
 
-impl<S, Q: QueryHandlers<S>, R> UpdateSt<S, Q, R> {
-    pub fn set<T>(&mut self, column: String, value: T)
+impl<S, Q: for<'q> QueryHandlers<S>, I: IdentSafety, R>
+    UpdateSt<S, Q, I, R>
+{
+    pub fn set<C, T>(&mut self, column: C, value: T)
     where
+        I: AcceptColIdent<C>,
         Q: Accept<T, S>,
+        T: Send + 'static,
     {
         let part = Q::handle_accept(value, &mut self.ctx);
-        self.sets.push((column, part));
+        self.sets.push((I::into_col(column), part));
     }
 
-    pub fn where_<I>(&mut self, item: I)
+    pub fn where_<Item>(&mut self, item: Item)
     where
-        I: BindItem<S, Q> + 'static,
-        
+        Item: BindItem<S, Q, I> + 'static,
     {
         let item = Q::handle_bind_item(item, &mut self.ctx);
         self.where_clause.push(item);

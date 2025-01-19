@@ -1,7 +1,7 @@
 use std::fmt::{self, Display};
 
 use crate::{
-    Accept, AcceptColIdent, BindItem, IdentSafety, NonBindItemI,
+    Accept, AcceptColIdent, BindItem, IdentSafety, NonBindItem,
     Query, QueryHandlers,
 };
 
@@ -21,7 +21,7 @@ where
     }
 }
 
-impl<I> NonBindItemI for ScopedCol<I>
+impl<I> NonBindItem for ScopedCol<I>
 where
     I: IdentSafety,
 {
@@ -62,10 +62,12 @@ impl<I: IdentSafety> fmt::Display for Alias<I> {
 
 pub struct ColEq<Col, T1>(Col, T1);
 
-impl<S, Q, Col, T1> BindItem<S, Q> for ColEq<Col, T1>
+impl<S, Q, Col, T1, I: IdentSafety> BindItem<S, Q, I>
+    for ColEq<Col, T1>
 where
     Q: Accept<T1, S>,
-    Col: NonBindItemI<I = Q::IdentSafety>,
+
+    Col: NonBindItem<I = I>,
 {
     fn bind_item(
         self,
@@ -79,10 +81,10 @@ where
 
 pub struct Or<T1>(pub Vec<T1>);
 
-impl<S, Q, T1> BindItem<S, Q> for Or<T1>
+impl<S, Q, T1, I> BindItem<S, Q, I> for Or<T1>
 where
     Q: Query,
-    T1: BindItem<S, Q>,
+    T1: BindItem<S, Q, I>,
     Q::Context2: 'static,
 {
     fn bind_item(
@@ -121,14 +123,11 @@ pub mod schema_items {
 
     use sqlx::{Database, Type};
 
-    use crate::{
-        BindItem, IdentSafety, NonBindItem, NonBindItemI, Query,
-        SchemaColumn,
-    };
+    use crate::{BindItem, IdentSafety, Query, SchemaColumn};
 
     pub struct ColumnType<T>(PhantomData<(T)>);
 
-    impl<T, S, Q> BindItem<S, Q> for ColumnType<T>
+    impl<T, S, Q, I> BindItem<S, Q, I> for ColumnType<T>
     where
         Q: Query,
         S: Database,
@@ -166,10 +165,10 @@ pub mod schema_items_for_tupe {
 
     pub struct All<T>(pub T);
 
-    impl<S, Q, T0, T1> BindItem<S, Q> for All<(T0, T1)>
+    impl<S, Q, T0, T1, I> BindItem<S, Q, I> for All<(T0, T1)>
     where
-        T0: BindItem<S, Q>,
-        T1: BindItem<S, Q>,
+        T0: BindItem<S, Q, I>,
+        T1: BindItem<S, Q, I>,
         Q: Query,
     {
         fn bind_item(

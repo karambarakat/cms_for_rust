@@ -35,6 +35,8 @@ and just like that you a full CRUD http server, automatic migration, an admin UI
 # Why Not SeaORM
 I worked with SeaORM for a while, before I decided to do this. there are many issues I tried to solve here.
 
+I think ORMs in general focus on the wrong level of abstract, here I'm trying to build a Content Management System, but there is an ORM-like API too.
+
 To summarize I think this crate is more flexible and convienient than SeaORM, to list few differences:
 
 1. Out of the box migration. (see Migration)
@@ -135,11 +137,10 @@ in addition to multiple relation domenstrated above, you can do deep relations l
 ```rust
     async fn test_deep_populate(db: Pool<Sqlite>) {
         let res = get_one::<Todo>()
-            .link_data(
-                relation::<Category>()
-                    // in theory you can do multiple deep relations and/or go deeper
-                    .deep_populate::<Todo>(),
-            )
+            .relation_as::<Category, _, _>(|r| {
+                // in theory you can do multiple deep relations and/or go deeper
+                r.deep_populate::<Todo>()
+            })
             .exec_op(db.clone())
             .await;
 
@@ -539,7 +540,7 @@ The CMS is built on top of other crate I have called `queries_for_sqlx`, this cr
 here is a summary of the features:
 1. extentions of sqlx to build queries dynamicly
 2. protect against SQL Injection
-3. handle database that support `?` syntax (unlike Sqlite which support `$1` for binding)
+3. handle database that support `?` syntax (unlike Sqlite which support `$1` for binding), see '/src/positional_query.rs' for full example of how that was achevied.
 
 I need to elaborate more on this crate, but that crate was not the purpose for this project.
 
@@ -553,7 +554,7 @@ axum::Router::new()
         // SELECT * FROM Todo
         st.select(all_columns());
 
-        // This will use information from sqlx to figure out
+        // This will use information from sqlx::Type to figure out
         // the type of the output on the fly
         st.fetch_all(&db.0, row_to_json_cached::sqlite_row())
             .await
@@ -596,6 +597,8 @@ assert_eq!(
     Todo { id: 3, title: "hi".to_string()},
 );
 ```
+
+major problem I'm trying to solve in this crate is how to support databases that don't have the `$1` syntax
 
 # Workspace Structure
 there are two core crates in this workspace:

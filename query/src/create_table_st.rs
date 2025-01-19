@@ -4,14 +4,15 @@ use sqlx::{database::HasArguments, Database};
 
 use crate::{
     execute_no_cache::ExecuteNoCacheUsingSelectTrait,
-    ident_safety::PanicOnUnsafe, BindItem, Constraint, Query,
-    QueryHandlers, SchemaColumn, Statement,
+    ident_safety::PanicOnUnsafe, AcceptTableIdent, BindItem,
+    Constraint, IdentSafety, Query, QueryHandlers, SchemaColumn,
+    Statement,
 };
 
 #[derive(Debug)]
-pub struct CreateTableSt<S, Q: Query> {
+pub struct CreateTableSt<S, Q: Query, I: IdentSafety> {
     pub(crate) header: String,
-    pub(crate) ident: (Option<String>, String),
+    pub(crate) ident: (Option<String>, I::Table),
     pub(crate) columns: Vec<(String, Q::SqlPart)>,
     pub(crate) constraints: Vec<Q::SqlPart>,
     pub(crate) verbatim: Vec<String>,
@@ -46,21 +47,23 @@ impl Display for CreateTableHeader {
     }
 }
 
-impl<S, Q: Query> ExecuteNoCacheUsingSelectTrait
-    for CreateTableSt<S, Q>
+impl<S, Q: Query, I: IdentSafety> ExecuteNoCacheUsingSelectTrait
+    for CreateTableSt<S, Q, I>
 {
 }
 
-impl<S, Q> CreateTableSt<S, Q>
+impl<S, Q, I> CreateTableSt<S, Q, I>
 where
     Q: Query,
+    I: IdentSafety,
 {
-    pub fn init(
-        header: (CreateTableHeader, &str),
-    ) -> Self {
+    pub fn init<C>(header: (CreateTableHeader, C)) -> Self
+    where
+        I: AcceptTableIdent<C>,
+    {
         Self {
             header: header.0.to_string(),
-            ident: (None, header.1.to_string()),
+            ident: (None, I::into_table(header.1)),
             columns: Default::default(),
             constraints: Default::default(),
             verbatim: Default::default(),
@@ -70,9 +73,10 @@ where
     }
 }
 
-impl<S, Q> Statement<S, Q> for CreateTableSt<S, Q>
+impl<S, Q, I> Statement<S, Q> for CreateTableSt<S, Q, I>
 where
     Q: Query,
+    I: IdentSafety,
 {
     fn deref_ctx(&self) -> &Q::Context1 {
         &self.ctx
@@ -91,7 +95,7 @@ where
                 str.push_str(&schema);
             }
 
-            str.push_str(&self.ident.1);
+            str.push_str(self.ident.1.as_ref());
 
             str.push_str(" (");
 
@@ -120,8 +124,9 @@ where
     }
 }
 
-impl<S, Q> CreateTableSt<S, Q>
+impl<S, Q, I> CreateTableSt<S, Q, I>
 where
+    I: IdentSafety,
     Q: Query,
     S: Database,
 {
@@ -131,8 +136,8 @@ where
     pub fn column<C>(&mut self, name: &str, constraint: C)
     where
         C: SchemaColumn<S> + 'static,
-        C: BindItem<S, Q>,
-        Q: QueryHandlers<S>,
+        C: BindItem<S, Q, I>,
+        Q: for<'q> QueryHandlers<S>,
     {
         let item =
             Q::handle_bind_item(constraint, &mut self.ctx);
@@ -141,8 +146,8 @@ where
     pub fn constraint<C>(&mut self, constraint: C)
     where
         C: Constraint + 'static,
-        C: BindItem<S, Q>,
-        Q: QueryHandlers<S>,
+        C: BindItem<S, Q, I>,
+        Q: for<'q> QueryHandlers<S>,
     {
         let item =
             Q::handle_bind_item(constraint, &mut self.ctx);

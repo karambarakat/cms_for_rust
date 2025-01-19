@@ -22,7 +22,17 @@ pub struct DeepPopulate<OR, D> {
     deep: PhantomData<D>,
 }
 
+pub struct OnlyId<To> {
+    _pd: PhantomData<To>
+}
+
 impl<B> Relation<B> {
+    // todo
+    pub fn only_id(self) -> OnlyId<B> {
+        OnlyId {
+            _pd: PhantomData
+        }
+    }
     pub fn deep_populate<T>(self) -> DeepPopulate<Self, (T,)> {
         DeepPopulate {
             original_rel: self,
@@ -40,27 +50,27 @@ pub struct DeepWorker<F, T, TD, S1, S2> {
     _pd: PhantomData<(F, T, TD)>,
 }
 
-impl<FromTodo, ToCat, DeepTodo> LinkData<FromTodo>
-    for DeepPopulate<Relation<ToCat>, (DeepTodo,)>
+impl<From, To, Deep> LinkData<From>
+    for DeepPopulate<Relation<To>, (Deep,)>
 where
-    FromTodo: Linked<ToCat>,
-    ToCat: Linked<
-        DeepTodo,
+    From: Linked<To>,
+    To: Linked<
+        Deep,
         // for now lets limit this example to optional_to_many relations
         Spec = OptionalToManyInverse,
     >,
 {
     type Worker = DeepWorker<
-        FromTodo,
-        ToCat,
-        DeepTodo,
-        FromTodo::Spec,
-        ToCat::Spec,
+        From,
+        To,
+        Deep,
+        From::Spec,
+        To::Spec,
     >;
     fn init(self) -> Self::Worker {
         DeepWorker {
-            spec1: FromTodo::spec(),
-            spec2: ToCat::spec(),
+            spec1: From::spec(),
+            spec2: To::spec(),
             _pd: PhantomData,
         }
     }

@@ -91,12 +91,12 @@ where
             _pd: PhantomData,
         }
     }
-    pub fn link_data<N>(
+    pub fn link_data<D>(
         self,
-        ty: N,
-    ) -> GetOneOp<Base, L::Bigger<N::Worker>, Q>
+        ty: D,
+    ) -> GetOneOp<Base, L::Bigger<D::Worker>, Q>
     where
-        N: LinkData<Base, Worker: GetOneWorker + Send>,
+        D: LinkData<Base, Worker: GetOneWorker + Send>,
     {
         GetOneOp {
             links: self.links.into_bigger(ty.init()),
@@ -104,15 +104,36 @@ where
             _pd: PhantomData,
         }
     }
-    pub fn relation<ToCat>(
+    pub fn relations_as<To, C, Actual>(
         self,
+        call_back: C,
     ) -> GetOneOp<
         Base,
-        L::Bigger<<Relation<ToCat> as LinkData<Base>>::Worker>,
+        L::Bigger<<Actual as LinkData<Base>>::Worker>,
         Q,
     >
     where
-        Relation<ToCat>:
+        Actual: LinkData<Base, Worker: GetOneWorker + Send>,
+        Relation<To>: LinkData<Base, Worker: GetOneWorker + Send>,
+        C: FnOnce(Relation<To>) -> Actual,
+    {
+        GetOneOp {
+            links: self
+                .links
+                .into_bigger(call_back(Relation(PhantomData)).init()),
+            queries: self.queries,
+            _pd: PhantomData,
+        }
+    }
+    pub fn relation<To>(
+        self,
+    ) -> GetOneOp<
+        Base,
+        L::Bigger<<Relation<To> as LinkData<Base>>::Worker>,
+        Q,
+    >
+    where
+        Relation<To>:
             LinkData<Base, Worker: GetOneWorker + Send>,
     {
         GetOneOp {

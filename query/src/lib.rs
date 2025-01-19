@@ -1,7 +1,7 @@
 #![allow(unused)]
 #[cfg(feature = "flexible_accept_impl")]
 pub mod accept_extra;
-pub mod clonable_query;
+// pub mod clonable_query;
 pub mod create_table_st;
 #[cfg(test)]
 pub mod debug_query;
@@ -13,7 +13,8 @@ pub mod ident_safety;
 pub mod impls;
 pub mod insert_many_st;
 pub mod insert_one_st;
-pub mod quick_query;
+pub mod positional_query;
+// pub mod quick_query;
 pub mod returning;
 pub mod select_st;
 pub mod string_query;
@@ -90,22 +91,22 @@ pub trait Query: Sized {
 }
 
 pub trait QueryHandlers<S>: Query {
-    fn handle_bind_item<T>(
+    fn handle_bind_item<T, I>(
         t: T,
         ctx: &mut Self::Context1,
     ) -> Self::SqlPart
     where
-        T: BindItem<S, Self> + 'static;
+        T: BindItem<S, Self, I> + 'static;
 
     fn handle_accept<T>(
         t: T,
         ctx: &mut Self::Context1,
     ) -> Self::SqlPart
     where
+        T: 'static + Send,
         Self: Accept<T, S>;
 }
 
-#[cfg(feature = "flexible_accept_impl")]
 #[allow(non_camel_case_types)]
 pub struct bind<T>(pub T);
 
@@ -136,40 +137,36 @@ pub trait AcceptColIdent<T>: IdentSafety {
     fn into_col(this: T) -> Self::Column;
 }
 
-pub trait Accept<This, S>: QueryHandlers<S> {
+pub trait Accept<This, S>: QueryHandlers<S> + Send {
     fn accept(
         this: This,
         ctx1: &mut Self::Context1,
     ) -> impl FnOnce(&mut Self::Context2) -> String + 'static + Send;
 }
 
-pub trait BindItem<S, Q: Query> {
+pub trait BindItem<S, Q: Query, I> {
     fn bind_item(
         self,
         ctx: &mut Q::Context1,
     ) -> impl FnOnce(&mut Q::Context2) -> String + 'static;
 }
 
-pub trait NonBindItem: Display + 'static {}
-
-pub trait NonBindItemI: Display + 'static {
-    type I: IdentSafety;
+pub trait NonBindItem: Display + 'static {
+    type I : IdentSafety;
 }
-
-impl<T> NonBindItem for T where T: NonBindItemI {}
-
-impl<S, Q: Query, T> BindItem<S, Q> for T
-where
-    T: NonBindItem,
-{
-    fn bind_item(
-        self,
-        ctx: &mut <Q as Query>::Context1,
-    ) -> impl FnOnce(&mut <Q as Query>::Context2) -> String + 'static
-    {
-        move |_| format!("{}", self)
-    }
-}
+//
+// impl<S, Q: Query, I, T> BindItem<S, Q, I> for T
+// where
+//     T: NonBindItem,
+// {
+//     fn bind_item(
+//         self,
+//         ctx: &mut <Q as Query>::Context1,
+//     ) -> impl FnOnce(&mut <Q as Query>::Context2) -> String + 'static
+//     {
+//         move |_| format!("{}", self)
+//     }
+// }
 
 pub trait WhereItem {}
 pub trait Constraint {}
