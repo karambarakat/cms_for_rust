@@ -30,7 +30,7 @@ relation! { optional_to_many Todo Category }
 relation! { many_to_many Todo Tag }
 ```
 
-and just like that you a full CRUD http server, automatic migration, an admin UI (comming) and an ORM-like api.
+Just by defining this schema, you have a full CRUD HTTP server, automatic migration, an admin UI (coming) and an ORM-like API.
 
 # Why Not SeaORM
 I worked with SeaORM for a while, before I decided to do this. there are many issues I tried to solve here.
@@ -81,7 +81,7 @@ let listner = tokio::net::TcpListener::bind("0.0.0.0:3000")
     .unwrap();
 ```
 
-the authintication strategry is basic for now -- reading is public and writing is protected via Bearer JWT token for `_super_users` table entries. in the future I will make a more customizable permission plugin.
+the authentication strategy is basic for now -- reading is public, and writing is protected via Bearer JWT token for _super_users table entries. In the future, I will make a more customizable permission plugin.
 
 checkout `all http REST features` section for all supported features.
 
@@ -89,7 +89,7 @@ checkout `all http REST features` section for all supported features.
 
 you have access to ORM-like client that supports populating relations:
 
-```
+```rust
 let res = get_one::<Todo>()
     .by_id(2)
     .relation::<Tag>()
@@ -501,38 +501,6 @@ in addition to multiple relation domenstrated above, you can do deep relations l
 
 for all feature supported all tests are at cms/src/operations
 
-## ORM-like API
-
-in the future I will have ORM-like API, the core of this code is already done I just need time to implement it.
-
-```rust
-let res = select_st::new::<Todo>()
-    .by_id(3)
-    .relation::<Category>()
-    .fetch_one(&db)
-    .await
-    .unwrap();
-
-assert_eq!(
-    res,
-    Output {
-        id: 3,
-        attributes: Todo {
-            title: "hi",
-            done: true,
-            description: "hello",
-        },
-        relations: (
-            Output {
-                id: 2,
-                attributes: Category { title: "cat_1" },
-                relations: ()
-            }
-        )
-    }
-);
-```
-
 ## Dynamic query builder (low level customization)
 
 The CMS is built on top of other crate I have called `queries_for_sqlx`, this crate is meant to be an extention for the famouse crate `sqlx`, and closely mimics sqlx and how different databases behave.
@@ -544,34 +512,9 @@ here is a summary of the features:
 
 I need to elaborate more on this crate, but that crate was not the purpose for this project.
 
-examples:
 
-```rust
-axum::Router::new()
-    .route("/", get(|| async {
-        let mut st = select_st::init("Todo");
 
-        // SELECT * FROM Todo
-        st.select(all_columns());
-
-        // This will use information from sqlx::Type to figure out
-        // the type of the output on the fly
-        st.fetch_all(&db.0, row_to_json_cached::sqlite_row())
-            .await
-            .unwrap()
-    }));
-
-// test the response
-assert_eq!(
-    response_body,
-    json!([
-        {"id": 3, "title": "hi", "done": true, "description": "hello"},
-        {"id": 4, "title": "bye", "done": false, "description": "goodbye"}
-    ])
-);
-```
-
-binding values example:
+*binding values example*
 ```rust
 let mut st = select_st::init("Todo");
 
@@ -598,7 +541,98 @@ assert_eq!(
 );
 ```
 
-major problem I'm trying to solve in this crate is how to support databases that don't have the `$1` syntax
+*How databases that supports `?` is different from ones that supports `$1`*
+
+take this as an example
+```
+let mut st = SelectSt("Todo");
+
+st.select(col("id"));
+
+st.limit(3);
+st.where_(col("title").eq("common_title"));
+```
+
+if you are using Sqlite or Postgres, rust will infer that generic and produce the following psuedocode:
+
+```
+let mut buffer = Default::default();
+let mut query = String::default();
+
+// the same order as called
+buffer.add(3);
+let limit_str = "$1";
+
+buffer.add("common_title");
+let where_str = "$2";
+
+query.push_str("SELECT id FROM Todo WHERE id = ");
+
+// where clause comes first
+query.push_str(where_str);
+
+query.push_str(" LIMIT ");
+
+query.push_str(limit_str);
+
+query.push_str(";");
+```
+
+buf if you are using MySql, rust will infer that and use 'PositionQuery', which will put the values on the heap temporarily until the query is built and bind those in the order they should be. this corresponds to the following psuedocode:
+
+```
+let mut tmp_buffer: Vec<Box<dyn PsuedoTrait>> = Default::default();
+let mut buffer = Default::default();
+let mut query = String::default();
+
+// the same order as called
+tmp_buffer.push(Box::new(3));
+let limit_index = 0;
+
+tmp_buffer.push(Box::new("common_title"));
+let where_index = 1;
+
+query.push_str("SELECT id FROM Todo WHERE id = ");
+
+// where clause comes first
+query.push_str("?");
+buffer.add(*tmp_buffer[where_index].take());
+
+query.push_str(" LIMIT ");
+
+query.push_str("?");
+buffer.add(*tmp_buffer[limit_index].take());
+
+query.push_str(";");
+```
+
+there is a performance cost of putting things at the heap, but this is unavoidable if you want rust to figure out the correct order at a runtime (TBH I hope sql uses BSON query, its easy to validate and protect against injection, and there would be no need for this whole thing).
+
+* easy to come with custome API Endpoint *
+```rust
+axum::Router::new()
+    .route("/", get(|| async {
+        let mut st = select_st::init("Todo");
+
+        // SELECT * FROM Todo
+        st.select(all_columns());
+
+        // This will use information from sqlx::Type to figure out
+        // the type of the output on the fly
+        st.fetch_all(&db.0, row_to_json_cached::sqlite_row())
+            .await
+            .unwrap()
+    }));
+
+// test the response
+assert_eq!(
+    response_body,
+    json!([
+        {"id": 3, "title": "hi", "done": true, "description": "hello"},
+        {"id": 4, "title": "bye", "done": false, "description": "goodbye"}
+    ])
+);
+```
 
 # Workspace Structure
 there are two core crates in this workspace:
@@ -612,10 +646,14 @@ the idea behind this seperation is that I realize by working with SeaORM that co
     - strict semver policy: there will be no breaking changes in `queries_for_sqlx` beyond v0.1.0, as long as sqlx doesn't have its v1 this will not release v1.
 
 # Plugin System
-I'm working on a "Modular" plugin system inspired by Nvim plugins. the idea revolves arout the crate `inventory` the idea, each plugin is defines how they wish to be customized by exporting `impl Collect`.
+I'm working on a "Modular" plugin system, I'm inspired by Nvim plugins where each plugin exports functions, and it's up to you (or other plugins) to use them as they wish.
 
-This way there would be no such thing as 'core plugins', each plugin is just an entry in Cargo.toml that submit inventory items.
+The idea revolves around the crate `inventory`; each plugin defines how they wish to be customized by exporting `impl Collect`.
 
-Every CMS have one enyrypoint "fn main", but this is 100% your code, I'm thinking to ship default entrypoint that includes all "built-in" plugins, and provide example of ones that are more customizable.
+This way there would be no such thing as 'core plugins'. Each plugin is just an entry in Cargo.toml that submits inventory items.
 
-for example, the migration in this crate is completely separate unit from the rest of the codebase, downstream crates can submit `dyn Migrate` that configure how the migration is run.
+Every CMS have one enyry-point "fn main", but this is 100% your code. I'm thinking of shipping a default entry-point that includes all "built-in" plugins and provides examples of more customizable ones.
+
+For example, the migration in this crate is a completely separate unit from the rest of the codebase; downstream crates can submit `dyn Migrate` that configures how the migration is run.
+
+I also dislike the idea of a headless CMS; providing a basic frontend, as long as it's not built-in and somehow customizable, is great. Anyone who doesn't like it can opt out because it is not built-in and you can use other plugins with different ecosystems around it.

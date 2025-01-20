@@ -1,7 +1,7 @@
 #![allow(unused)]
 #[cfg(feature = "flexible_accept_impl")]
 pub mod accept_extra;
-// pub mod clonable_query;
+pub mod clonable_query;
 pub mod create_table_st;
 #[cfg(test)]
 pub mod debug_query;
@@ -14,7 +14,7 @@ pub mod impls;
 pub mod insert_many_st;
 pub mod insert_one_st;
 pub mod positional_query;
-// pub mod quick_query;
+pub mod quick_query;
 pub mod returning;
 pub mod select_st;
 pub mod string_query;

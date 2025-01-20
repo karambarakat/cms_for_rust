@@ -113,12 +113,12 @@ where
     {
         Self::accept(t, ctx)(&mut ())
     }
-    fn handle_bind_item<T>(
+    fn handle_bind_item<T, I>(
         t: T,
         ctx: &mut Self::Context1,
     ) -> Self::SqlPart
     where
-        T: BindItem<S, Self> + 'static,
+        T: BindItem<S, Self, I> + 'static,
     {
         t.bind_item(ctx)(&mut ())
     }

@@ -10,8 +10,7 @@ pub type SelectSt<S> =
 pub type InsertSt<S> = st::InsertStOne<'static, S, ()>;
 
 pub type UpdateSt<S> =
-    st::UpdateSt<S, QuickQuery<'static, S>, ()>;
+    st::UpdateSt<S, QuickQuery<'static, S>, PanicOnUnsafe, ()>;
 
 pub type DeleteSt<S> =
-    st::DeleteSt<S, QuickQuery<'static, S>, ()>;
-
+    st::DeleteSt<S, QuickQuery<'static, S>, PanicOnUnsafe, ()>;
