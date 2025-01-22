@@ -152,9 +152,9 @@ pub trait BindItem<S, Q: Query, I> {
 }
 
 pub trait NonBindItem: Display + 'static {
-    type I : IdentSafety;
+    type I: IdentSafety;
 }
-//
+
 // impl<S, Q: Query, I, T> BindItem<S, Q, I> for T
 // where
 //     T: NonBindItem,

@@ -387,16 +387,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cms_process_manager"
-version = "0.0.1"
-dependencies = [
- "inventory",
- "lazy_static",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"

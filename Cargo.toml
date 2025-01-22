@@ -3,7 +3,6 @@ members = [
     "query",
     "cms",
     "macros",
-    "process_manager",
 ]
 
 exclude = [
