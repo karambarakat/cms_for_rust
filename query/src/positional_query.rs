@@ -12,7 +12,7 @@ use crate::{
 };
 use crate::{AcceptColIdent, AcceptTableIdent, IdentSafety};
 
-pub struct PositionalQuery<'q, S>(PhantomData<(&'q (), S)>);
+pub struct PositionalQuery<S>(PhantomData<S>);
 
 pub trait Stored<S> {
     fn bind(
@@ -62,21 +62,32 @@ impl AcceptTableIdent<&'static str> for NoOpIdentSafety {
     }
 }
 
-impl<S> Query for PositionalQuery<'static, S>
+pub struct PositionalCtx2<S: Database> {
+    pub(crate) back: Vec<Option<Box<dyn Stored<S>>>>,
+    pub(crate) arg: <S as HasArguments<'static>>::Arguments,
+}
+
+impl<S: Database> From<Vec<Option<Box<dyn Stored<S>>>>>
+    for PositionalCtx2<S>
+{
+    fn from(back: Vec<Option<Box<dyn Stored<S>>>>) -> Self {
+        PositionalCtx2 {
+            back,
+            arg: Default::default(),
+        }
+    }
+}
+
+impl<S> Query for PositionalQuery<S>
 where
     S: Database,
 {
-    type IdentSafety = NoOpIdentSafety;
-
     type SqlPart =
         Box<dyn FnOnce(&mut Self::Context2) -> String>;
 
     type Context1 = Vec<Option<Box<dyn Stored<S>>>>;
 
-    type Context2 = (
-        Vec<Option<Box<dyn Stored<S>>>>,
-        <S as HasArguments<'static>>::Arguments,
-    );
+    type Context2 = PositionalCtx2<S>;
 
     fn build_sql_part_back(
         ctx: &mut Self::Context2,
@@ -91,22 +102,21 @@ where
         ctx1: Self::Context1,
         f: impl FnOnce(&mut Self::Context2) -> String,
     ) -> (String, Self::Output) {
-        let mut ctx2 = (ctx1, Default::default());
-        let str = f(&mut ctx2);
-        let output = ctx2.1;
+        // let mut ctx2 = (ctx1, Default::default());
+        let mut ctx2 = PositionalCtx2::from(ctx1);
+        let ptr = &mut ctx2 as *mut _;
+        let str = f(unsafe { &mut *ptr });
+        let output = ctx2.arg;
         return (str, output);
     }
 }
 
-impl<S> QueryHandlers<S> for PositionalQuery<'static, S>
+impl<S> QueryHandlers<S> for PositionalQuery<S>
 where
     Self: Query<
         SqlPart = Box<dyn FnOnce(&mut Self::Context2) -> String>,
         Context1 = Vec<Option<Box<dyn Stored<S>>>>,
-        Context2 = (
-            Vec<Option<Box<dyn Stored<S>>>>,
-            <S as HasArguments<'static>>::Arguments,
-        ),
+        Context2 = PositionalCtx2<S>,
     >,
     S: Database,
 {
@@ -118,7 +128,9 @@ where
         T: BindItem<S, Self, I> + 'static,
     {
         Box::new(move |ctx| {
-            let b = t.bind_item(&mut ctx.0);
+            let ptr = &mut ctx.back;
+            let ptr2 = unsafe { &mut *(ptr as *mut _) };
+            let b = t.bind_item(ptr2);
             b(ctx)
         })
     }
@@ -132,13 +144,15 @@ where
         Self: Accept<T, S>,
     {
         Box::new(move |ctx| {
-            let bring_back = Self::accept(t, &mut ctx.0);
+            let cc = &mut ctx.back as &mut _;
+            let cc2 = unsafe { &mut *(cc as *mut _) };
+            let bring_back = Self::accept(t, cc2);
             bring_back(ctx)
         })
     }
 }
 
-impl<S, T> Accept<T, S> for PositionalQuery<'static, S>
+impl<S, T> Accept<T, S> for PositionalQuery<S>
 where
     S: Database,
     T: Type<S> + for<'q> Encode<'q, S> + 'static + Send,
@@ -153,13 +167,13 @@ where
 
         move |ctx2| {
             let bring_back = ctx2
-                .0
+                .back
                 .get_mut(len - 1)
                 .map(|e| e.take())
                 .flatten()
                 .expect("should be bound and taken only once");
 
-            bring_back.bind(&mut ctx2.1);
+            bring_back.bind(&mut ctx2.arg);
 
             "?".to_string()
         }
@@ -229,7 +243,7 @@ mod tests {
     fn positional_query_figure_out_order() {
         let mut st = SelectSt::<
             Sqlite,
-            PositionalQuery<'static, Sqlite>,
+            PositionalQuery<Sqlite>,
             NoOpIdentSafety,
         >::init("Todo");
 
@@ -262,7 +276,7 @@ mod tests {
 
         let mut st = SelectSt::<
             Sqlite,
-            PositionalQuery<'static, Sqlite>,
+            PositionalQuery<Sqlite>,
             NoOpIdentSafety,
         >::init("Todo");
 

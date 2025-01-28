@@ -9,14 +9,33 @@ use crate::{
     SupportNamedBind,
 };
 
-pub struct QuickQuery<'q, S>(PhantomData<(&'q (), S)>);
+pub struct QuickQuery<S>(PhantomData<S>);
 
-impl<'q, S: Database + SupportNamedBind> Query
-    for QuickQuery<'q, S>
-{
-    type IdentSafety = PanicOnUnsafe;
+pub struct QuickQueryCtx1<S: Database> {
+    size: usize,
+    arg: <S as HasArguments<'static>>::Arguments,
+    noop: (),
+}
+
+impl<S: Database> Default for QuickQueryCtx1<S> {
+    fn default() -> Self {
+        QuickQueryCtx1 {
+            size: 0,
+            arg: Default::default(),
+            noop: Default::default(),
+        }
+    }
+}
+
+impl<S: Database> From<QuickQueryCtx1<S>> for () {
+    fn from(this: QuickQueryCtx1<S>) -> Self {
+        this.noop
+    }
+}
+
+impl<S: Database + SupportNamedBind> Query for QuickQuery<S> {
     type SqlPart = String;
-    type Context1 = (usize, <S as HasArguments<'q>>::Arguments);
+    type Context1 = QuickQueryCtx1<S>;
     type Context2 = ();
     fn build_sql_part_back(
         _: &mut Self::Context2,
@@ -24,22 +43,25 @@ impl<'q, S: Database + SupportNamedBind> Query
     ) -> String {
         from
     }
-    type Output = <S as HasArguments<'q>>::Arguments;
+    type Output = <S as HasArguments<'static>>::Arguments;
     fn build_query(
-        ctx1: Self::Context1,
+        mut ctx1: Self::Context1,
         f: impl FnOnce(&mut Self::Context2) -> String,
     ) -> (String, Self::Output) {
-        (f(&mut ()), ctx1.1)
+        // I wonder if I can remove this in the future
+        let noop = unsafe { &mut *(&mut ctx1.noop as *mut _) };
+        let strr = f(noop);
+        (strr, ctx1.arg)
     }
 }
 
-impl<'q, S> QueryHandlers<S> for QuickQuery<'q, S>
+impl<S> QueryHandlers<S> for QuickQuery<S>
 where
     S: Database + SupportNamedBind,
     // needed because the S in this impl may not match the S in Query impl:
     Self: Query<
         SqlPart = String,
-        Context1 = (usize, <S as HasArguments<'q>>::Arguments),
+        Context1 = QuickQueryCtx1<S>,
         Context2 = (),
     >,
 {
@@ -50,7 +72,9 @@ where
     where
         Self: Accept<T, S>,
     {
-        Self::accept(t, ctx)(&mut ())
+        let cc = &mut ctx.noop as &mut ();
+        let cc2 = unsafe { &mut *(cc as *mut _) };
+        Self::accept(t, ctx)(cc2)
     }
     fn handle_bind_item<T, I>(
         t: T,
@@ -59,25 +83,27 @@ where
     where
         T: BindItem<S, Self, I> + 'static,
     {
-        t.bind_item(ctx)(&mut ())
+        let cc = &mut ctx.noop as &mut ();
+        let cc2 = unsafe { &mut *(cc as *mut _) };
+        t.bind_item(ctx)(cc2)
     }
 }
 
 #[cfg(not(feature = "flexible_accept_impl"))]
-impl<'q, S, T> Accept<T, S> for QuickQuery<'q, S>
+impl<S, T> Accept<T, S> for QuickQuery<S>
 where
     S: Database + SupportNamedBind,
-    T: for<'e> Encode<'e, S> + Type<S> + Send + 'q,
+    T: for<'e> Encode<'e, S> + Type<S> + Send + 'static,
 {
     fn accept(
         this: T,
         ctx1: &mut Self::Context1,
-    ) -> impl FnOnce(&mut Self::Context2) -> String + 'static + Send
+    ) -> impl FnOnce(&mut Self::Context2) -> String + Send + 'static
     {
         use sqlx::Arguments;
-        ctx1.1.add(this);
-        ctx1.0 += 1;
-        let len = ctx1.0;
+        ctx1.arg.add(this);
+        ctx1.size += 1;
+        let len = ctx1.size;
         move |_| format!("${}", len)
     }
 }

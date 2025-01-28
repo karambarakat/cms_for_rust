@@ -7,7 +7,7 @@ pub mod derive_collection {
         ColumnIndex, Database, Decode, Encode, Row, Type,
     };
     // pub use queries_for_sqlx::create_table_st::CreateTableSt;
-    pub use crate::migration2::CreatTableSt;
+    pub use crate::queries_bridge::CreatTableSt;
     pub use queries_for_sqlx::expressions_2::schema_items::col_type;
     pub use crate::migration2::SubmitDynMigrate;
     pub use crate::dynamic_schema::SubmitDynCollection;

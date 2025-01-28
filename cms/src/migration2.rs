@@ -7,24 +7,21 @@ use inventory::collect;
 use queries_for_sqlx::{
     clonable_query::ClonablQuery,
     create_table_st::{CreateTableHeader, CreateTableSt},
+    ident_safety::PanicOnUnsafe,
     prelude::ExecuteNoCache,
 };
 use sqlx::{Pool, Sqlite};
 
-use crate::traits::Collection;
+use crate::{queries_bridge::CreatTableSt, traits::Collection};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Events {
     TableCreated(&'static str),
 }
 
-pub type CreatTableSt<S> =
-    queries_for_sqlx::create_table_st::CreateTableSt<
-        S,
-        ClonablQuery<'static, S>,
-    >;
-
-pub(crate) struct Store(pub(crate) HashMap<String, CreatTableSt<Sqlite>>);
+pub(crate) struct Store(
+    pub(crate) HashMap<String, CreatTableSt<Sqlite>>,
+);
 
 pub struct MigrationCtx<'l> {
     pub(crate) events: &'l mut Vec<Events>,

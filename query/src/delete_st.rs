@@ -5,8 +5,8 @@ use sqlx::Database;
 use crate::{
     execute_no_cache::ExecuteNoCacheUsingSelectTrait,
     ident_safety::PanicOnUnsafe, returning::ReturningClause,
-    BindItem, IdentSafety, Query, QueryHandlers, Statement,
-    SupportNamedBind,
+    AcceptTableIdent, BindItem, IdentSafety, Query,
+    QueryHandlers, Statement, SupportNamedBind,
 };
 
 pub struct DeleteSt<S, Q: Query, I: IdentSafety, R = ()> {
@@ -17,50 +17,54 @@ pub struct DeleteSt<S, Q: Query, I: IdentSafety, R = ()> {
     pub(crate) _sqlx: PhantomData<S>,
 }
 
-impl<S, Q, I: IdentSafety, R> ExecuteNoCacheUsingSelectTrait
+impl<'q, S, Q, I: IdentSafety, R> ExecuteNoCacheUsingSelectTrait
     for DeleteSt<S, Q, I, R>
 where
     Q: Query,
 {
 }
 
-impl<S, Q> DeleteSt<S, Q, ()>
+impl<'q, S, Q, I> DeleteSt<S, Q, I>
 where
     Q: Query,
+    I: IdentSafety,
 {
-    pub fn init(init: String) -> Self {
+    pub fn init<M>(init: M) -> Self
+    where
+        I: AcceptTableIdent<M>,
+    {
         DeleteSt {
             where_clause: Vec::new(),
             ctx: Default::default(),
-            table: init,
+            table: I::into_table(init),
             returning: (),
             _sqlx: PhantomData,
         }
     }
 }
-impl<S, Q, I, R> Statement<S, Q> for DeleteSt<S, Q, I, R>
+impl<'q, S, Q, I, R> Statement<S, Q> for DeleteSt<S, Q, I, R>
 where
     R: ReturningClause,
     S: Database + SupportNamedBind,
     Q: Query,
     I: IdentSafety,
 {
-    fn deref_ctx(&self) -> &<Q as Query>::Context1 {
+    fn deref_ctx(&self) -> &Q::Context1 {
         &self.ctx
     }
-    fn deref_mut_ctx(&mut self) -> &mut <Q as Query>::Context1 {
+    fn deref_mut_ctx(&mut self) -> &mut Q::Context1 {
         &mut self.ctx
     }
-    fn _build(self) -> (String, <Q as Query>::Output) {
+    fn _build(self) -> (String, Q::Output) {
         self.build()
     }
 }
 
-impl<S, Q: Query, I: IdentSafety> DeleteSt<S, Q, I> {
+impl< S, Q: Query, I: IdentSafety> DeleteSt< S, Q, I> {
     pub fn returning(
         self,
         returning: Vec<&'static str>,
-    ) -> DeleteSt<S, Q, I, Vec<&'static str>> {
+    ) -> DeleteSt< S, Q, I, Vec<&'static str>> {
         DeleteSt {
             returning,
             where_clause: self.where_clause,
@@ -71,18 +75,20 @@ impl<S, Q: Query, I: IdentSafety> DeleteSt<S, Q, I> {
     }
 }
 
-impl<S, Q: Query, I: IdentSafety> DeleteSt<S, Q, I> {
+impl<S, Q: Query, I: IdentSafety>
+    DeleteSt<S, Q, I>
+{
     pub fn where_<W>(&mut self, item: W)
     where
         W: BindItem<S, Q, I> + 'static,
-        Q: for<'q> QueryHandlers<S>,
+        Q: QueryHandlers< S>,
     {
         let item = Q::handle_bind_item(item, &mut self.ctx);
         self.where_clause.push(item);
     }
 }
 
-impl<'q, S, Q, R, I> DeleteSt<S, Q, I, R>
+impl< S, Q, R, I> DeleteSt<S, Q, I, R>
 where
     S: SupportNamedBind,
     S: Database,

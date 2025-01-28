@@ -62,6 +62,7 @@ impl<I: IdentSafety> fmt::Display for Alias<I> {
 
 pub struct ColEq<Col, T1>(Col, T1);
 
+#[cfg(not(feature = "support_non_static_args"))]
 impl<S, Q, Col, T1, I: IdentSafety> BindItem<S, Q, I>
     for ColEq<Col, T1>
 where
@@ -71,9 +72,8 @@ where
 {
     fn bind_item(
         self,
-        ctx: &mut <Q as Query>::Context1,
-    ) -> impl FnOnce(&mut <Q as Query>::Context2) -> String + 'static
-    {
+        ctx: &mut Q::Context1,
+    ) -> impl FnOnce(&mut Q::Context2) -> String + 'static {
         let map = Q::accept(self.1, ctx);
         move |ctx| format!("{} = {}", self.0, map(ctx))
     }
@@ -81,6 +81,7 @@ where
 
 pub struct Or<T1>(pub Vec<T1>);
 
+#[cfg(not(feature = "support_non_static_args"))]
 impl<S, Q, T1, I> BindItem<S, Q, I> for Or<T1>
 where
     Q: Query,
@@ -135,9 +136,9 @@ pub mod schema_items {
     {
         fn bind_item(
             self,
-            ctx: &mut <Q as Query>::Context1,
-        ) -> impl FnOnce(&mut <Q as Query>::Context2) -> String
-               + 'static {
+            ctx: &mut Q::Context1,
+        ) -> impl FnOnce(&mut Q::Context2) -> String + 'static
+        {
             move |_| self.display()
         }
     }
@@ -165,7 +166,8 @@ pub mod schema_items_for_tupe {
 
     pub struct All<T>(pub T);
 
-    impl<S, Q, T0, T1, I> BindItem<S, Q, I> for All<(T0, T1)>
+    impl<S, Q, T0, T1, I> BindItem<S, Q, I>
+        for All<(T0, T1)>
     where
         T0: BindItem<S, Q, I>,
         T1: BindItem<S, Q, I>,
@@ -173,9 +175,9 @@ pub mod schema_items_for_tupe {
     {
         fn bind_item(
             self,
-            ctx: &mut <Q as crate::Query>::Context1,
+            ctx: &mut <Q as Query>::Context1,
         ) -> impl FnOnce(
-            &mut <Q as crate::Query>::Context2,
+            &mut Q ::Context2,
         ) -> String
                + 'static {
             let ptr = ctx as *mut _;
@@ -191,7 +193,14 @@ pub mod schema_items_for_tupe {
             // rust is not allowing this without unsafe
             let b0 = this.0.bind_item(unsafe { &mut *ptr });
             let b1 = this.1.bind_item(unsafe { &mut *ptr });
-            |ctxb| format!("{} {}", b0(ctxb), b1(ctxb))
+            |ctxb| {
+                let ptr = ctxb as *mut _;
+                format!(
+                    "{} {}",
+                    b0(unsafe { &mut *ptr }),
+                    b1(unsafe { &mut *ptr }),
+                )
+            }
         }
     }
 

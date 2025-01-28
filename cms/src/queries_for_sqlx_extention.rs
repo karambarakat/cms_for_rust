@@ -71,7 +71,7 @@ where
     }
 }
 
-impl<S, Q, T> BindItem<S, Q> for ColumnTypeCheckIfNull<T>
+impl<S, Q, I, T> BindItem<S, Q, I> for ColumnTypeCheckIfNull<T>
 where
     S: Database,
     Q: Query,
@@ -98,7 +98,7 @@ impl<S: SqlxQuery> SchemaColumn<S> for DefaultPrimaryKey {
     }
 }
 
-impl<S, Q> BindItem<S, Q> for DefaultPrimaryKey
+impl<S, Q, I> BindItem<S, Q, I> for DefaultPrimaryKey
 where
     S: Database + SqlxQuery,
     Q: Query,
@@ -130,7 +130,7 @@ where
     }
 }
 
-impl<S, Q> BindItem<S, Q> for PK<S>
+impl<S, Q, I> BindItem<S, Q, I> for PK<S>
 where
     S: Database,
     S: SqlxQuery,

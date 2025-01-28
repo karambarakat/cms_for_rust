@@ -21,7 +21,7 @@ pub struct SelectSt<S, Q: Query, I: IdentSafety> {
     pub(crate) _sqlx: PhantomData<(S, I)>,
 }
 
-impl<'q, S, Q, I> ExecuteNoCacheUsingSelectTrait
+impl<S, Q, I> ExecuteNoCacheUsingSelectTrait
     for SelectSt<S, Q, I>
 where
     I: IdentSafety,
@@ -29,12 +29,12 @@ where
 {
 }
 
-impl<'q, S, Q: Query> SelectSt<S, Q, <Q as Query>::IdentSafety> {
+impl<S, Q, I> SelectSt<S, Q, I> where Q: Query, I: IdentSafety {
     pub fn init<T: AsRef<str>>(from: T) -> Self
     where
-        <Q as Query>::IdentSafety: AcceptTableIdent<T>,
+        I: AcceptTableIdent<T>,
     {
-        let ident_safety = Q::IdentSafety::init(Some(&from));
+        let ident_safety = I::init(Some(&from));
         SelectSt {
             select_list: Default::default(),
             where_clause: Default::default(),
@@ -43,18 +43,16 @@ impl<'q, S, Q: Query> SelectSt<S, Q, <Q as Query>::IdentSafety> {
             limit: Default::default(),
             shift: Default::default(),
             ctx: Default::default(),
-            from: <Q::IdentSafety as AcceptTableIdent<T>>::into_table(
-                from,
-            ),
+            from: I::into_table(from),
             ident_safety,
             _sqlx: PhantomData,
         }
     }
 }
 
-impl<'q, S, Q, I> Statement<S, Q> for SelectSt<S, Q, I>
+impl<S, Q, I> Statement<S, Q> for SelectSt<S, Q, I>
 where
-    Q: Query<IdentSafety = I>,
+    Q: Query,
     I: IdentSafety,
 {
     fn deref_ctx(&self) -> &Q::Context1 {
@@ -71,7 +69,7 @@ where
 
 impl<S, Q, I> SelectSt<S, Q, I>
 where
-    Q: Query<IdentSafety = I>,
+    Q: Query,
     I: IdentSafety,
 {
     pub fn build(self) -> (String, Q::Output) {
@@ -173,27 +171,28 @@ where
         item: C,
         alias: &'static str,
     ) where
-        Q::IdentSafety: AcceptTableIdent<T>,
-        Q::IdentSafety: AcceptColIdent<C>,
+        I: AcceptTableIdent<T>,
+        I: AcceptColIdent<C>,
     {
-        let i = Q::IdentSafety::into_col(item);
-        let t = Q::IdentSafety::into_table(table);
+        let i = I::into_col(item);
+        let t = I::into_table(table);
         self.select_list.push((Some(t), i, Some(alias)));
     }
+
     pub fn select_scoped<T, C>(&mut self, table: T, item: C)
     where
-        Q::IdentSafety: AcceptTableIdent<T>,
-        Q::IdentSafety: AcceptColIdent<C>,
+        I: AcceptTableIdent<T>,
+        I: AcceptColIdent<C>,
     {
-        let i = Q::IdentSafety::into_col(item);
-        let t = Q::IdentSafety::into_table(table);
+        let i = I::into_col(item);
+        let t = I::into_table(table);
         self.select_list.push((Some(t), i, None));
     }
     pub fn select<T>(&mut self, item: T)
     where
-        Q::IdentSafety: AcceptColIdent<T>,
+        I: AcceptColIdent<T>,
     {
-        let i = Q::IdentSafety::into_col(item);
+        let i = I::into_col(item);
         self.select_list.push((None, i, None));
     }
 
@@ -230,6 +229,20 @@ where
     //     self.joins.push(join);
     // }
 
+    pub fn order_by<T>(&mut self, by: T, asc: bool)
+    where
+        I: AcceptColIdent<T>,
+    {
+        self.order_by.push((I::into_col(by), asc));
+    }
+}
+
+impl<S, Q, I> SelectSt<S, Q, I>
+where
+    Q: QueryHandlers<S>,
+    Q: Query,
+    I: IdentSafety,
+{
     pub fn offset<T>(&mut self, shift: T)
     where
         Q: Accept<T, S>,
@@ -247,7 +260,7 @@ where
     pub fn limit<T>(&mut self, limit: T)
     where
         Q: Accept<T, S>,
-        T: Send + 'static
+        T: Send + 'static,
     {
         if self.limit.is_some() {
             panic!("limit has been set already");
@@ -257,18 +270,9 @@ where
 
         self.limit = Some(limit);
     }
-
-    pub fn order_by<T>(&mut self, by: T, asc: bool)
-    where
-        Q::IdentSafety: AcceptColIdent<T>,
-    {
-        self.order_by.push((Q::IdentSafety::into_col(by), asc));
-    }
-
     pub fn where_<T>(&mut self, item: T)
     where
         T: BindItem<S, Q, I> + 'static,
-        Q: QueryHandlers<S>,
     {
         let item = Q::handle_bind_item(item, &mut self.ctx);
 

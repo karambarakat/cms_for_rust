@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use sqlx::Database;
 
 use crate::{
-    execute_no_cache::ExecuteNoCacheUsingSelectTrait, ident_safety::PanicOnUnsafe, returning::ReturningClause, Accept, AcceptColIdent, BindItem, IdentSafety, Query, QueryHandlers, Statement, SupportNamedBind, SupportReturning
+    execute_no_cache::ExecuteNoCacheUsingSelectTrait, ident_safety::PanicOnUnsafe, returning::ReturningClause, Accept, AcceptColIdent, AcceptTableIdent, BindItem, IdentSafety, Query, QueryHandlers, Statement, SupportNamedBind, SupportReturning
 };
 
 pub struct UpdateSt<S, Q: Query, I: IdentSafety, R = ()> {
@@ -26,16 +26,19 @@ impl<S, Q: Query, I: IdentSafety, R>
 {
 }
 
-impl<S, Q> UpdateSt<S, Q, ()>
+impl<S, Q, I: IdentSafety> UpdateSt<S, Q, I>
 where
     Q: Query,
 {
-    pub fn init(init: String) -> Self {
+    pub fn init<M>(init: M) -> Self 
+    where 
+        I: AcceptTableIdent<M>,
+    {
         UpdateSt {
             sets: Vec::new(),
             where_clause: Vec::new(),
             ctx: Default::default(),
-            table: init.to_string(),
+            table: I::into_table(init),
             returning: (),
             _sqlx: PhantomData,
         }
@@ -55,12 +58,12 @@ where
         &mut self.ctx
     }
 
-    fn _build(self) -> (String, <Q as Query>::Output) {
+    fn _build(self) -> (String, Q::Output) {
         self.build()
     }
 }
 
-impl<'q, S, R, Q, I> UpdateSt<S, Q, I, R>
+impl<S, R, Q, I> UpdateSt<S, Q, I, R>
 where
     S: SupportNamedBind,
     S: Database,
@@ -74,7 +77,6 @@ where
     {
         <Q as Query>::build_query(self.ctx, |ctx| {
             let mut str = String::from("UPDATE ");
-
 
             str.push_str(self.table.as_ref());
 
@@ -121,11 +123,11 @@ where
     }
 }
 
-impl<S, Q: Query,I: IdentSafety> UpdateSt<S, Q, I, ()> {
+impl<S, Q: Query, I: IdentSafety> UpdateSt<S, Q, I, ()> {
     pub fn returning_<R>(
         self,
         cols: Vec<R>,
-    ) -> UpdateSt<S, Q,I,  Vec<R>>
+    ) -> UpdateSt<S, Q, I, Vec<R>>
     where
         S: SupportReturning,
     {
@@ -154,8 +156,10 @@ impl<S, Q: Query,I: IdentSafety> UpdateSt<S, Q, I, ()> {
     }
 }
 
-impl<S, Q: for<'q> QueryHandlers<S>, I: IdentSafety, R>
-    UpdateSt<S, Q, I, R>
+impl<S, Q, I, R> UpdateSt<S, Q, I, R>
+where
+    Q: QueryHandlers<S>,
+    I: IdentSafety,
 {
     pub fn set<C, T>(&mut self, column: C, value: T)
     where

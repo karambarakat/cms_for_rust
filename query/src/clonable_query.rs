@@ -41,6 +41,13 @@ pub struct ClonableCtx1<'q, S: Database> {
     size: usize,
     arg: <S as HasArguments<'q>>::Arguments,
     back: Vec<Box<dyn IntoMutBut<'q, S> + 'q>>,
+    noop: (),
+}
+
+impl<'q, S: Database> From<ClonableCtx1<'q, S>> for () {
+    fn from(this: ClonableCtx1<'q, S>) -> Self {
+        this.noop
+    }
 }
 
 impl<'q, S: Database> Default for ClonableCtx1<'q, S> {
@@ -49,6 +56,7 @@ impl<'q, S: Database> Default for ClonableCtx1<'q, S> {
             size: 0,
             arg: Default::default(),
             back: Default::default(),
+            noop: Default::default(),
         }
     }
 }
@@ -68,16 +76,16 @@ impl<'q, S: Database> Clone for ClonableCtx1<'q, S> {
             size: self.size.clone(),
             arg,
             back,
+            noop: self.noop.clone(),
         }
     }
 }
 
-impl<'q, S: Database + SupportNamedBind> Query
-    for ClonablQuery<'q, S>
+impl<S: Database + SupportNamedBind> Query
+    for ClonablQuery<'static, S>
 {
-    type IdentSafety = PanicOnUnsafe;
     type SqlPart = String;
-    type Context1 = ClonableCtx1<'q, S>;
+    type Context1 = ClonableCtx1<'static, S>;
     type Context2 = ();
     fn build_sql_part_back(
         _: &mut Self::Context2,
@@ -85,22 +93,23 @@ impl<'q, S: Database + SupportNamedBind> Query
     ) -> String {
         from
     }
-    type Output = <S as HasArguments<'q>>::Arguments;
+    type Output = <S as HasArguments<'static>>::Arguments;
     fn build_query(
-        ctx1: Self::Context1,
+        mut ctx1: Self::Context1,
         f: impl FnOnce(&mut Self::Context2) -> String,
     ) -> (String, Self::Output) {
-        (f(&mut ()), ctx1.arg)
+        let strr = f(&mut ());
+        (strr, ctx1.arg)
     }
 }
 
-impl<'q, S> QueryHandlers<S> for ClonablQuery<'q, S>
+impl<S> QueryHandlers<S> for ClonablQuery<'static, S>
 where
     S: Database + SupportNamedBind,
     // needed because the S in this impl may not match the S in Query impl:
     Self: Query<
         SqlPart = String,
-        Context1 = ClonableCtx1<'q, S>,
+        Context1 = ClonableCtx1<'static, S>,
         Context2 = (),
     >,
 {
@@ -111,7 +120,9 @@ where
     where
         Self: Accept<T, S>,
     {
-        Self::accept(t, ctx)(&mut ())
+        let noop = &mut ctx.noop as &mut ();
+        let noop_ptr = unsafe { &mut *(noop as *mut _) };
+        Self::accept(t, ctx)(noop_ptr)
     }
     fn handle_bind_item<T, I>(
         t: T,
@@ -120,15 +131,17 @@ where
     where
         T: BindItem<S, Self, I> + 'static,
     {
-        t.bind_item(ctx)(&mut ())
+        let noop = &mut ctx.noop as &mut ();
+        let noop_ptr = unsafe { &mut *(noop as *mut _) };
+        t.bind_item(ctx)(noop_ptr)
     }
 }
 
 #[cfg(not(feature = "flexible_accept_impl"))]
-impl<'q, S, T> Accept<T, S> for ClonablQuery<'q, S>
+impl<S, T> Accept<T, S> for ClonablQuery<'static, S>
 where
     S: Database + SupportNamedBind,
-    T: for<'e> Encode<'e, S> + Type<S> + Send + 'q + Clone,
+    T: for<'e> Encode<'e, S> + Type<S> + Send + 'static + Clone,
 {
     fn accept(
         this: T,

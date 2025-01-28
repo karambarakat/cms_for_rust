@@ -133,21 +133,21 @@ where
     pub fn verbatim(&mut self, verbatim: &str) {
         self.verbatim.push(verbatim.to_string());
     }
-    pub fn column<C>(&mut self, name: &str, constraint: C)
+    pub fn column<C>(& mut self, name: &str, constraint: C)
     where
         C: SchemaColumn<S> + 'static,
         C: BindItem<S, Q, I>,
-        Q: for<'q> QueryHandlers<S>,
+        Q: QueryHandlers<S>,
     {
         let item =
             Q::handle_bind_item(constraint, &mut self.ctx);
         self.columns.push((name.to_string(), item));
     }
-    pub fn constraint<C>(&mut self, constraint: C)
+    pub fn constraint<C>(& mut self, constraint: C)
     where
         C: Constraint + 'static,
         C: BindItem<S, Q, I>,
-        Q: for<'q> QueryHandlers<S>,
+        Q: QueryHandlers<S>,
     {
         let item =
             Q::handle_bind_item(constraint, &mut self.ctx);

@@ -18,6 +18,10 @@ pub mod quick_query;
 pub mod returning;
 pub mod select_st;
 pub mod string_query;
+#[cfg(feature = "support_non_static_args")]
+pub mod support_non_static_args_mod;
+#[cfg(feature = "support_non_static_args")]
+pub use support_non_static_args_mod::*;
 pub mod update_st;
 
 pub mod prelude {
@@ -72,11 +76,11 @@ use std::{
 
 use sqlx::{database::HasArguments, Database, Postgres, Sqlite};
 
+#[cfg(not(feature = "support_non_static_args"))]
 pub trait Query: Sized {
-    type IdentSafety: IdentSafety;
     type SqlPart;
-    type Context1: Default;
-    type Context2: Default;
+    type Context1: Default + 'static;
+    type Context2: From<Self::Context1>;
 
     fn build_sql_part_back(
         ctx: &mut Self::Context2,
@@ -84,16 +88,20 @@ pub trait Query: Sized {
     ) -> String;
 
     type Output;
+
     fn build_query(
         ctx1: Self::Context1,
         f: impl FnOnce(&mut Self::Context2) -> String,
     ) -> (String, Self::Output);
 }
 
+
+
+#[cfg(not(feature = "support_non_static_args"))]
 pub trait QueryHandlers<S>: Query {
     fn handle_bind_item<T, I>(
         t: T,
-        ctx: &mut Self::Context1,
+        ctx: &mut <Self as Query>::Context1,
     ) -> Self::SqlPart
     where
         T: BindItem<S, Self, I> + 'static;
@@ -110,6 +118,7 @@ pub trait QueryHandlers<S>: Query {
 #[allow(non_camel_case_types)]
 pub struct bind<T>(pub T);
 
+#[cfg(not(feature = "support_non_static_args"))]
 pub trait Statement<S, Q: Query> {
     fn deref_ctx(&self) -> &Q::Context1;
     fn deref_mut_ctx(&mut self) -> &mut Q::Context1;
@@ -137,6 +146,7 @@ pub trait AcceptColIdent<T>: IdentSafety {
     fn into_col(this: T) -> Self::Column;
 }
 
+#[cfg(not(feature = "support_non_static_args"))]
 pub trait Accept<This, S>: QueryHandlers<S> + Send {
     fn accept(
         this: This,
@@ -144,7 +154,12 @@ pub trait Accept<This, S>: QueryHandlers<S> + Send {
     ) -> impl FnOnce(&mut Self::Context2) -> String + 'static + Send;
 }
 
-pub trait BindItem<S, Q: Query, I> {
+#[cfg(not(feature = "support_non_static_args"))]
+pub trait BindItem<S, Q, I>
+where
+    Q::Context1: 'static,
+    Q: Query,
+{
     fn bind_item(
         self,
         ctx: &mut Q::Context1,
