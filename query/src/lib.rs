@@ -13,7 +13,9 @@ pub mod ident_safety;
 pub mod impls;
 pub mod insert_many_st;
 pub mod insert_one_st;
+#[cfg(feature = "todo")]
 pub mod positional_query;
+pub mod prepared_statement;
 pub mod quick_query;
 pub mod returning;
 pub mod select_st;
@@ -94,8 +96,6 @@ pub trait Query: Sized {
         f: impl FnOnce(&mut Self::Context2) -> String,
     ) -> (String, Self::Output);
 }
-
-
 
 #[cfg(not(feature = "support_non_static_args"))]
 pub trait QueryHandlers<S>: Query {

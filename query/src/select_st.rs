@@ -29,7 +29,11 @@ where
 {
 }
 
-impl<S, Q, I> SelectSt<S, Q, I> where Q: Query, I: IdentSafety {
+impl<S, Q, I> SelectSt<S, Q, I>
+where
+    Q: Query,
+    I: IdentSafety,
+{
     pub fn init<T: AsRef<str>>(from: T) -> Self
     where
         I: AcceptTableIdent<T>,

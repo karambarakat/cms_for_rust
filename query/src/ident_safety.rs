@@ -12,6 +12,14 @@ lazy_static::lazy_static! {
     static ref IDENTS: RwLock<(HashSet<String>, HashMap<String, HashSet<String>>)> = RwLock::new((HashSet::new(), HashMap::new()));
 }
 
+pub fn append_schema(table: &str, columns: &[&str]) {
+    let mut idents = IDENTS.write().unwrap();
+    idents.0.insert(table.to_string());
+    let columns =
+        columns.iter().map(|x| x.to_string()).collect();
+    idents.1.insert(table.to_string(), columns);
+}
+
 pub fn define_schema(columns: &[(&str, &[&str])]) {
     let mut idents = IDENTS.write().unwrap();
     for (table, columns) in columns {

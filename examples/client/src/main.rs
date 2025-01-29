@@ -1,6 +1,6 @@
 use axum::Router;
 use cms_for_rust::{
-    auth::auth_router,
+    auth::{auth_router, init_auth_plugin},
     axum_router::collections_router,
     cms_macros::{relation, standard_collection},
     collections_editor::admin_router,
@@ -30,15 +30,18 @@ relation! { many_to_many Todo Tag }
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::FmtSubscriber::builder()
-        .with_max_level(tracing::Level::DEBUG)
-        .init();
-
     let pool = Pool::<Sqlite>::connect("sqlite::memory:")
         .await
         .unwrap();
 
+
     run_migration(pool.clone()).await.unwrap();
+
+    tracing_subscriber::FmtSubscriber::builder()
+        .with_max_level(tracing::Level::DEBUG)
+        .init();
+
+    init_auth_plugin(pool.clone()).await;
 
     let app = Router::new()
         .nest("/collectinos", collections_router())

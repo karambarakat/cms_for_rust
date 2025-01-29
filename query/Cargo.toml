@@ -33,7 +33,7 @@ paste = "1.0.15"
 
 [features]
 default = []
-# in sqlx, in-memory databases can take references like: SqliteArgumentValue<'q>, this is uncommon in my opinion; but I can see how they are useful. there are technical challenges if I want to support this in this crate; gated under this feature. for now, this feature is disabled by default and all arguments has to be 'static
+# in sqlx, in-memory databases can take references like: SqliteArgumentValue<'q>, this is uncommon in my opinion; but I can see how it is useful. there are technical challenges if I want to support this in this crate; gated under this feature. for now, this feature is disabled by default and all arguments has to be 'static
 # a big problem is that I might need to introduce breaking changes in the public traits and struct definitions to support this.
 support_non_static_args = []
 # this feature exports an api that is not stable
@@ -46,6 +46,4 @@ build_statments = []
 # for larger set of types, this comes at the cost of
 # having to use `bind` function for `impl Encode` types
 flexible_accept_impl = []
-
-
-
+todo = []

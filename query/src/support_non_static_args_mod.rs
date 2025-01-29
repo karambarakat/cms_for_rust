@@ -1594,88 +1594,88 @@ pub mod create_table_st {
     // }
 }
 
-
 pub mod clonable_query_impls {
-impl<'s, 'q: 's, S: Database + SupportNamedBind> Query<'s, 'q>
-    for ClonablQuery<'q, S>
-{
-    type IdentSafety = PanicOnUnsafe;
-    type SqlPart = String;
-    type Context1 = ClonableCtx1<'q, S>;
-    type Context2 = ();
-    fn build_sql_part_back(
-        _: &mut Self::Context2,
-        from: Self::SqlPart,
-    ) -> String {
-        from
+    impl<'s, 'q: 's, S: Database + SupportNamedBind>
+        Query<'s, 'q> for ClonablQuery<'q, S>
+    {
+        type IdentSafety = PanicOnUnsafe;
+        type SqlPart = String;
+        type Context1 = ClonableCtx1<'q, S>;
+        type Context2 = ();
+        fn build_sql_part_back(
+            _: &mut Self::Context2,
+            from: Self::SqlPart,
+        ) -> String {
+            from
+        }
+        type Output = <S as HasArguments<'q>>::Arguments;
+        fn build_query(
+            mut ctx1: Self::Context1,
+            f: impl FnOnce(&'s mut Self::Context2) -> String,
+        ) -> (String, Self::Output) {
+            let noop =
+                unsafe { &mut *(&mut ctx1.noop as *mut _) };
+            let strr = f(noop);
+            (strr, ctx1.arg)
+        }
     }
-    type Output = <S as HasArguments<'q>>::Arguments;
-    fn build_query(
-        mut ctx1: Self::Context1,
-        f: impl FnOnce(&'s mut Self::Context2) -> String,
-    ) -> (String, Self::Output) {
-        let noop = unsafe { &mut *(&mut ctx1.noop as *mut _) };
-        let strr = f(noop);
-        (strr, ctx1.arg)
-    }
-}
 
-impl<'s, 'q, S> QueryHandlers<'s, 'q, S> for ClonablQuery<'q, S>
-where
-    'q: 's,
-    S: Database + SupportNamedBind,
-    // needed because the S in this impl may not match the S in Query impl:
-    Self: Query<
-        's,
-        'q,
-        SqlPart = String,
-        Context1 = ClonableCtx1<'q, S>,
-        Context2 = (),
-    >,
-{
-    fn handle_accept<T>(
-        t: T,
-        ctx: &'s mut Self::Context1,
-    ) -> Self::SqlPart
+    impl<'s, 'q, S> QueryHandlers<'s, 'q, S> for ClonablQuery<'q, S>
     where
-        Self: Accept<'s, 'q, T, S>,
+        'q: 's,
+        S: Database + SupportNamedBind,
+        // needed because the S in this impl may not match the S in Query impl:
+        Self: Query<
+            's,
+            'q,
+            SqlPart = String,
+            Context1 = ClonableCtx1<'q, S>,
+            Context2 = (),
+        >,
     {
-        let noop = &mut ctx.noop as &mut ();
-        let noop_ptr = unsafe { &mut *(noop as *mut _) };
-        Self::accept(t, ctx)(noop_ptr)
+        fn handle_accept<T>(
+            t: T,
+            ctx: &'s mut Self::Context1,
+        ) -> Self::SqlPart
+        where
+            Self: Accept<'s, 'q, T, S>,
+        {
+            let noop = &mut ctx.noop as &mut ();
+            let noop_ptr = unsafe { &mut *(noop as *mut _) };
+            Self::accept(t, ctx)(noop_ptr)
+        }
+        fn handle_bind_item<T, I>(
+            t: T,
+            ctx: &'s mut Self::Context1,
+        ) -> Self::SqlPart
+        where
+            T: BindItem<'s, 'q, S, Self, I> + 'static,
+        {
+            let noop = &mut ctx.noop as &mut ();
+            let noop_ptr = unsafe { &mut *(noop as *mut _) };
+            t.bind_item(ctx)(noop_ptr)
+        }
     }
-    fn handle_bind_item<T, I>(
-        t: T,
-        ctx: &'s mut Self::Context1,
-    ) -> Self::SqlPart
-    where
-        T: BindItem<'s, 'q, S, Self, I> + 'static,
-    {
-        let noop = &mut ctx.noop as &mut ();
-        let noop_ptr = unsafe { &mut *(noop as *mut _) };
-        t.bind_item(ctx)(noop_ptr)
-    }
-}
 
-#[cfg(not(feature = "flexible_accept_impl"))]
-impl<'s, 'q, S, T> Accept<'s, 'q, T, S> for ClonablQuery<'q, S>
-where
-    'q: 's,
-    S: Database + SupportNamedBind,
-    T: for<'e> Encode<'e, S> + Type<S> + Send + 'q + Clone,
-{
-    fn accept(
-        this: T,
-        ctx1: &'s mut Self::Context1,
-    ) -> impl FnOnce(&'s mut Self::Context2) -> String + 's + Send
+    #[cfg(not(feature = "flexible_accept_impl"))]
+    impl<'s, 'q, S, T> Accept<'s, 'q, T, S> for ClonablQuery<'q, S>
+    where
+        'q: 's,
+        S: Database + SupportNamedBind,
+        T: for<'e> Encode<'e, S> + Type<S> + Send + 'q + Clone,
     {
-        use sqlx::Arguments;
-        let cloned = this.clone();
-        ctx1.back.push(Box::new(cloned));
-        ctx1.arg.add(this);
-        ctx1.size += 1;
-        let len = ctx1.size;
-        move |_| format!("${}", len)
+        fn accept(
+            this: T,
+            ctx1: &'s mut Self::Context1,
+        ) -> impl FnOnce(&'s mut Self::Context2) -> String + 's + Send
+        {
+            use sqlx::Arguments;
+            let cloned = this.clone();
+            ctx1.back.push(Box::new(cloned));
+            ctx1.arg.add(this);
+            ctx1.size += 1;
+            let len = ctx1.size;
+            move |_| format!("${}", len)
+        }
     }
-}
 }

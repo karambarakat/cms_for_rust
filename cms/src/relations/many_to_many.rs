@@ -37,6 +37,12 @@ pub struct ManyToMany {
 }
 
 impl DynMigration for ManyToMany {
+    fn panic_on_unsafe_schema(&self) {
+        queries_for_sqlx::ident_safety::append_schema(
+            &self.conjuction_table,
+            &[&self.base_id, &self.destination_id],
+        )
+    }
     fn migrate(
         &self,
         ctx: &mut crate::migration2::MigrationCtx,

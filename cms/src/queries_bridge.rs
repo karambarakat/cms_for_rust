@@ -1,5 +1,6 @@
 use queries_for_sqlx::{
-    clonable_query::ClonablQuery, ident_safety::PanicOnUnsafe, prelude::stmt as st, quick_query::QuickQuery
+    clonable_query::ClonablQuery, ident_safety::PanicOnUnsafe,
+    prelude::stmt as st, quick_query::QuickQuery,
 };
 // todo: support 'impl Database'
 
@@ -14,9 +15,8 @@ pub type UpdateSt<S> =
 pub type DeleteSt<S> =
     st::DeleteSt<S, QuickQuery<S>, PanicOnUnsafe, ()>;
 
-pub type CreatTableSt<S> =
-    queries_for_sqlx::create_table_st::CreateTableSt<
-        S,
-        ClonablQuery<'static, S>,
-        PanicOnUnsafe,
-    >;
+pub type CreatTableSt<S> = st::CreateTableSt<
+    S,
+    ClonablQuery<'static, S>,
+    PanicOnUnsafe,
+>;

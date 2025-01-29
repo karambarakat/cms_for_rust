@@ -30,6 +30,12 @@ pub struct OptionalToMany {
 }
 
 impl DynMigration for (&'static str, OptionalToMany) {
+    fn panic_on_unsafe_schema(&self) {
+        queries_for_sqlx::ident_safety::append_schema(
+            self.0,
+            &[self.1.foriegn_key.as_str()],
+        )
+    }
     fn migrate(
         &self,
         ctx: &mut crate::migration2::MigrationCtx,

@@ -7,7 +7,7 @@ use inventory::collect;
 use queries_for_sqlx::{
     clonable_query::ClonablQuery,
     create_table_st::{CreateTableHeader, CreateTableSt},
-    ident_safety::PanicOnUnsafe,
+    ident_safety::{define_schema, PanicOnUnsafe},
     prelude::ExecuteNoCache,
 };
 use sqlx::{Pool, Sqlite};
@@ -34,12 +34,20 @@ pub trait DynMigration {
         &self,
         ctx: &mut MigrationCtx,
     ) -> Result<(), String>;
+
+    fn panic_on_unsafe_schema(&self);
 }
 
 impl<T> DynMigration for PhantomData<T>
 where
     T: Collection<Sqlite>,
 {
+    fn panic_on_unsafe_schema(&self) {
+        queries_for_sqlx::ident_safety::append_schema(
+            T::table_name(),
+            T::members(),
+        )
+    }
     fn migrate(
         &self,
         ctx: &mut MigrationCtx,
@@ -82,6 +90,7 @@ pub async fn run_migration(
     let mut events: Vec<Events> = vec![];
 
     while let Some(item) = execs.pop() {
+        item.panic_on_unsafe_schema();
         item.migrate(&mut MigrationCtx {
             events: &mut events,
             executables: &mut execs,

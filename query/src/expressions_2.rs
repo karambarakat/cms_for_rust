@@ -166,8 +166,7 @@ pub mod schema_items_for_tupe {
 
     pub struct All<T>(pub T);
 
-    impl<S, Q, T0, T1, I> BindItem<S, Q, I>
-        for All<(T0, T1)>
+    impl<S, Q, T0, T1, I> BindItem<S, Q, I> for All<(T0, T1)>
     where
         T0: BindItem<S, Q, I>,
         T1: BindItem<S, Q, I>,
@@ -176,10 +175,8 @@ pub mod schema_items_for_tupe {
         fn bind_item(
             self,
             ctx: &mut <Q as Query>::Context1,
-        ) -> impl FnOnce(
-            &mut Q ::Context2,
-        ) -> String
-               + 'static {
+        ) -> impl FnOnce(&mut Q::Context2) -> String + 'static
+        {
             let ptr = ctx as *mut _;
             let this = self.0;
             // SAFETY:

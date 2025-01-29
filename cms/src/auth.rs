@@ -93,6 +93,29 @@ impl IntoResponse for AuthError {
     }
 }
 
+pub async fn init_auth_plugin(p: Pool<Sqlite>) {
+    let count: (i32,) = sqlx::query_as(
+        "
+SELECT Count(*) FROM _super_users;
+        ",
+    )
+    .fetch_one(&p)
+    .await
+    .unwrap();
+
+    if count.0 == 0 {
+        let id: (i32,) = sqlx::query_as(
+            "
+INSERT INTO _super_users () VALUES ()
+RETURNING (id);
+",
+        )
+        .fetch_one(&p)
+        .await
+        .unwrap();
+    }
+}
+
 pub fn auth_router() -> Router<Pool<Sqlite>> {
     Router::new()
         .route(

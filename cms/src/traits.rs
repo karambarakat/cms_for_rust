@@ -5,9 +5,8 @@ use serde::Serialize;
 use serde_json::Value;
 use sqlx::{sqlite::SqliteRow, Database, Sqlite};
 
-use crate::{
-    
-    queries_bridge::{InsertSt, CreatTableSt, SelectSt, UpdateSt},
+use crate::queries_bridge::{
+    CreatTableSt, InsertSt, SelectSt, UpdateSt,
 };
 
 pub trait Validate {

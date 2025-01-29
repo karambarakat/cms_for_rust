@@ -6,7 +6,8 @@ use std::{
 
 use inventory::collect;
 use queries_for_sqlx::{
-    ident_safety::PanicOnUnsafe, prelude::*,
+    ident_safety::{append_schema, PanicOnUnsafe},
+    prelude::*,
     quick_query::QuickQuery,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -393,10 +394,10 @@ where
 }
 
 pub trait DynCollection: Send + Sync + 'static {
+    fn members_no_scope(&self) -> &'static [&'static str];
     fn table_name(&self) -> &str;
     // all scoped
     fn on_select(&self, stmt: &mut SelectSt<Sqlite>);
-
     // all scoped, no modification
     fn from_row_scoped(
         &self,
@@ -465,6 +466,9 @@ where
     T: DeserializeOwned,
     T::PartailCollection: DeserializeOwned,
 {
+    fn members_no_scope(&self) -> &'static [&'static str] {
+        T::members()
+    }
     fn on_update(
         &self,
         input: Value,

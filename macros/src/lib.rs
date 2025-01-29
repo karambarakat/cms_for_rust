@@ -3,6 +3,7 @@ use proc_macro_error::proc_macro_error;
 mod collection_derive;
 mod entity_derive;
 mod into_mut_argument_derive;
+mod prepared_statement;
 mod relation;
 mod relations_mod;
 mod schema_macro;
@@ -19,6 +20,20 @@ mod schema_macro;
 //
 //     ts.into()
 // }
+
+#[proc_macro]
+#[proc_macro_error]
+pub fn prepared_statement(input: TokenStream) -> TokenStream {
+    let input =
+        match syn::parse::<prepared_statement::Input>(input) {
+            Ok(data) => data,
+            Err(err) => {
+                return err.to_compile_error().into();
+            }
+        };
+
+    prepared_statement::main(input).into()
+}
 
 #[proc_macro_derive(Collection)]
 #[proc_macro_error]

@@ -3,7 +3,11 @@ use std::marker::PhantomData;
 use sqlx::Database;
 
 use crate::{
-    execute_no_cache::ExecuteNoCacheUsingSelectTrait, ident_safety::PanicOnUnsafe, returning::ReturningClause, Accept, AcceptColIdent, AcceptTableIdent, BindItem, IdentSafety, Query, QueryHandlers, Statement, SupportNamedBind, SupportReturning
+    execute_no_cache::ExecuteNoCacheUsingSelectTrait,
+    ident_safety::PanicOnUnsafe, returning::ReturningClause,
+    Accept, AcceptColIdent, AcceptTableIdent, BindItem,
+    IdentSafety, Query, QueryHandlers, Statement,
+    SupportNamedBind, SupportReturning,
 };
 
 pub struct UpdateSt<S, Q: Query, I: IdentSafety, R = ()> {
@@ -30,8 +34,8 @@ impl<S, Q, I: IdentSafety> UpdateSt<S, Q, I>
 where
     Q: Query,
 {
-    pub fn init<M>(init: M) -> Self 
-    where 
+    pub fn init<M>(init: M) -> Self
+    where
         I: AcceptTableIdent<M>,
     {
         UpdateSt {
