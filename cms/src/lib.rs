@@ -1,4 +1,3 @@
-#![allow(unused)]
 pub use cms_macros;
 pub mod auth;
 pub mod axum_router;

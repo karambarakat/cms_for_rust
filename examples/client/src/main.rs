@@ -42,9 +42,10 @@ async fn main() {
         create_super_user_if_not_exist(pool.clone()).await
     {
         let base = "http://localhost:3000";
+        let fe  = "http://localhost:5173";
         println!("Looks like you have no super user");
         print!("Create your first at ");
-        println!("{base}/auth/init_user?token={token},backend_url={base}");
+        println!("{fe}/auth/init_user?token={token}&backend_url={base}");
         println!(
             "Or initiate different database at the same page"
         );
