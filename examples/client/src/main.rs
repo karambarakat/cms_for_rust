@@ -1,6 +1,6 @@
 use axum::Router;
 use cms_for_rust::{
-    auth::{auth_router, init_auth_plugin},
+    auth::{auth_router, create_super_user_if_not_exist},
     axum_router::collections_router,
     cms_macros::{relation, standard_collection},
     collections_editor::admin_router,
@@ -34,14 +34,25 @@ async fn main() {
         .await
         .unwrap();
 
-
     run_migration(pool.clone()).await.unwrap();
+
+    std::env::set_var("JWT_SALT", "secret");
+
+    if let Some(token) =
+        create_super_user_if_not_exist(pool.clone()).await
+    {
+        let base = "http://localhost:3000";
+        println!("Looks like you have no super user");
+        print!("Create your first at ");
+        println!("{base}/auth/init_user?token={token},backend_url={base}");
+        println!(
+            "Or initiate different database at the same page"
+        );
+    }
 
     tracing_subscriber::FmtSubscriber::builder()
         .with_max_level(tracing::Level::DEBUG)
         .init();
-
-    init_auth_plugin(pool.clone()).await;
 
     let app = Router::new()
         .nest("/collectinos", collections_router())

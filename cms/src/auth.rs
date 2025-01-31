@@ -20,7 +20,8 @@ use chrono::Utc;
 use hmac::{Hmac, Mac};
 use ijwt::IClaims;
 use jwt::{FromBase64, SignWithKey};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::json;
 use sqlx::{
     database::HasArguments, ColumnIndex, Database, Decode,
     Executor, IntoArguments, Pool, Sqlite,
@@ -37,10 +38,10 @@ pub struct SuperUser {
 
 pub fn migration_st<S: Database>() -> &'static str {
     r#"
-    CREATE TABLE IF NOT EXISTS _super_user (
-        id SERIAL PRIMARY KEY,
+    CREATE TABLE IF NOT EXISTS _super_users (
+        id SERIAL,
         user_name TEXT NOT NULL,
-        email TEXT NOT NULL,
+        email TEXT,
         password TEXT,
         PRIMARY KEY (user_name, email)
     );
@@ -93,7 +94,14 @@ impl IntoResponse for AuthError {
     }
 }
 
-pub async fn init_auth_plugin(p: Pool<Sqlite>) {
+pub async fn create_super_user_if_not_exist(
+    p: Pool<Sqlite>,
+) -> Option<String> {
+    sqlx::query(migration_st::<Sqlite>())
+        .execute(&p)
+        .await
+        .unwrap();
+
     let count: (i32,) = sqlx::query_as(
         "
 SELECT Count(*) FROM _super_users;
@@ -106,18 +114,39 @@ SELECT Count(*) FROM _super_users;
     if count.0 == 0 {
         let id: (i32,) = sqlx::query_as(
             "
-INSERT INTO _super_users () VALUES ()
-RETURNING (id);
+INSERT INTO _super_users (user_name) VALUES (\"super_admin\") RETURNING (id);
 ",
         )
         .fetch_one(&p)
         .await
         .unwrap();
+
+        let id = id.0;
+
+        let token = ijwt::sign_and(
+            &id.to_string(),
+            chrono::Duration::minutes(30),
+            vec![(
+                "privilege".to_string(),
+                json!("init_application"),
+            )]
+            .into_iter()
+            .collect(),
+        );
+
+        return Some(token);
     }
+
+    return None;
 }
 
 pub fn auth_router() -> Router<Pool<Sqlite>> {
     Router::new()
+        .route(
+            "/init_set_up_first",
+            post(init_set_up_first)
+                .route_layer(from_fn(need_super_user)),
+        )
         .route(
             "/set_up_invited",
             post(set_up_invited)
@@ -130,12 +159,64 @@ pub fn auth_router() -> Router<Pool<Sqlite>> {
         )
 }
 
-#[derive(Deserialize)]
+impl EmailPassword {
+    fn new(mut uns: EmailPasswordUnsafe) -> Self {
+        hash_pass(&mut uns.password);
+
+        EmailPassword {
+            email: uns.email,
+            password: uns.password,
+        }
+    }
+}
+fn hash_pass(ser: &mut String) {
+    let salt = std::env::var("SALT").unwrap();
+
+    let mut digest = [0u8; ring::digest::SHA256_OUTPUT_LEN];
+
+    let key = ring::pbkdf2::derive(
+        ring::pbkdf2::PBKDF2_HMAC_SHA256,
+        NonZero::new(100).unwrap(),
+        salt.as_bytes(),
+        ser.as_bytes(),
+        &mut digest,
+    );
+
+    use jwt::ToBase64;
+
+    let n = digest.to_base64().unwrap().to_string();
+    *ser = n;
+}
+
 pub struct EmailPassword {
     email: String,
     password: String,
 }
 
+impl<'d> Deserialize<'d> for EmailPassword {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'d>,
+    {
+        let mut basic =
+            EmailPasswordUnsafe::deserialize(deserializer)?;
+
+        hash_pass(&mut basic.password);
+
+        Ok(EmailPassword {
+            email: basic.email,
+            password: basic.password,
+        })
+    }
+}
+
+#[derive(Deserialize)]
+struct EmailPasswordUnsafe {
+    email: String,
+    password: String,
+}
+
+/// take it as Basic token
 impl<S: Sync> FromRequestParts<S> for EmailPassword {
     type Rejection = String;
 
@@ -153,29 +234,44 @@ impl<S: Sync> FromRequestParts<S> for EmailPassword {
         let mut basic = EmailPassword::from_base64(basic)
             .map_err(|e| e.to_string())?;
 
-        let salt = std::env::var("SALT").unwrap();
-
-        let mut digest = [0u8; ring::digest::SHA256_OUTPUT_LEN];
-
-        let key = ring::pbkdf2::derive(
-            ring::pbkdf2::PBKDF2_HMAC_SHA256,
-            NonZero::new(100).unwrap(),
-            salt.as_bytes(),
-            basic.password.as_bytes(),
-            &mut digest,
-        );
-
-        use jwt::ToBase64;
-
-        basic.password = digest.to_base64().unwrap().to_string();
-
         Ok(basic)
     }
 }
 
 #[derive(Deserialize)]
 pub struct SetupFirstUser {
-    user: String,
+    user_name: String,
+    #[serde(flatten)]
+    email_password: EmailPassword,
+}
+
+#[axum::debug_handler]
+pub async fn init_set_up_first(
+    user: Extension<IClaims>, // authenticated
+    db: State<Pool<Sqlite>>,
+    body: Json<SetupFirstUser>,
+) -> Result<(), ()> {
+    if user.0.todos.get("privilege")
+        != Some(&json!("init_application"))
+    {
+        return Err(());
+    }
+
+    sqlx::query(
+        "
+    INSERT (user_name, email, password) 
+    VALUES ($1, $2, $3)
+    INTO _super_user WHERE id = $4",
+    )
+    .bind(body.0.user_name)
+    .bind(body.0.email_password.email)
+    .bind(body.0.email_password.password)
+    .bind(user.0.id)
+    .fetch_one(&db.0)
+    .await
+    .unwrap();
+
+    Ok(())
 }
 
 #[axum::debug_handler]
@@ -192,7 +288,7 @@ pub async fn set_up_invited(
     VALUES ($1, $2, $3)
     INTO _super_user WHERE id = $4",
     )
-    .bind(body.0.user)
+    .bind(body.0.user_name)
     .bind(basic_safe.email)
     .bind(basic_safe.password)
     .bind(user.0.id)
@@ -297,8 +393,6 @@ pub async fn need_super_user(
 }
 
 mod ijwt {
-    use std::collections::HashMap;
-
     use chrono::DateTime;
     use chrono::Duration;
     use chrono::Utc;
@@ -311,16 +405,18 @@ mod ijwt {
     use jwt::VerifyWithKey;
     use serde::Deserialize;
     use serde::Serialize;
+    use std::collections::HashMap;
 
     #[derive(Clone, Deserialize, Serialize)]
-
     pub struct IClaims {
         pub id: String,
         pub iat: i64,
         pub exp: i64,
+        #[serde(flatten)]
+        pub todos: HashMap<String, serde_json::Value>,
     }
 
-    fn sign(data: IClaims) -> String {
+    fn sign<S: Serialize>(data: S) -> String {
         let env =
             std::env::var("JWT_SALT").expect("JWT_SALT not set");
 
@@ -331,17 +427,29 @@ mod ijwt {
         data.sign_with_key(&key).unwrap()
     }
 
+    pub fn sign_and(
+        id: &str,
+        until: chrono::TimeDelta,
+        more_data: HashMap<String, serde_json::Value>,
+    ) -> String {
+        let iat = Utc::now();
+        let exp = iat + until;
+
+        let mut map = serde_json::to_value(IClaims {
+            id: id.to_owned(),
+            iat: iat.timestamp(),
+            exp: exp.timestamp(),
+            todos: HashMap::new(),
+        })
+        .unwrap();
+
+        sign(map)
+    }
+
     pub fn sign_for(
         id: &str,
         until: chrono::TimeDelta,
     ) -> String {
-        let env =
-            std::env::var("JWT_SALT").expect("JWT_SALT not set");
-
-        let key =
-            Hmac::<sha2::Sha256>::new_from_slice(env.as_bytes())
-                .expect("HMAC can take key of any size");
-
         let iat = Utc::now();
         let exp = iat + until;
 
@@ -349,6 +457,7 @@ mod ijwt {
             id: id.to_owned(),
             iat: iat.timestamp(),
             exp: exp.timestamp(),
+            todos: HashMap::new(),
         })
     }
 
