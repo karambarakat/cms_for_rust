@@ -1,6 +1,7 @@
 pub use cms_macros;
 pub mod auth;
 pub mod axum_router;
+pub mod initialization;
 pub mod build_tuple;
 #[cfg(test)]
 pub mod client_example;

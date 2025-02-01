@@ -61,7 +61,7 @@ export default component$(() => {
         });
 
         if (!res.status.toString().startsWith("2")) {
-            // todo: handle rejection?
+
         }
 
         let token = res.headers.get("X-token");

@@ -73,9 +73,23 @@ impl<T: fmt::Debug> From<T> for AuthError {
     }
 }
 
+
+
 impl IntoResponse for AuthError {
     fn into_response(self) -> axum::response::Response {
-        (StatusCode::BAD_REQUEST, self.0).into_response()
+        let reason = StatusCode::BAD_REQUEST.canonical_reason();
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": {
+                    "canonical_reason": reason,
+                    "non_canonical_reason": null,
+                // the error can be handled
+                    "user_error": null,
+                },
+            })),
+        )
+            .into_response()
     }
 }
 
@@ -141,7 +155,7 @@ pub async fn can_init(
     if user.0.todos.get("privilege")
         != Some(&json!("init_application"))
     {
-        Err("cannot initialize the application")?;
+        Err("under privileged")?;
     }
 
     Ok(next.run(req).await)

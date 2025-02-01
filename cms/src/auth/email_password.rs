@@ -8,7 +8,7 @@ use jwt::FromBase64;
 use serde::{Deserialize, Deserializer};
 
 fn hash_pass(ser: &mut String) {
-    let salt = std::env::var("SALT").unwrap();
+    let salt = std::env::var("JWT_SALT").unwrap();
 
     let mut digest = [0u8; ring::digest::SHA256_OUTPUT_LEN];
 
