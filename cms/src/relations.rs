@@ -16,7 +16,7 @@ pub mod prelude {
     };
     pub use crate::operations::select_one::GetOneWorker;
     pub use crate::relations::RelationWorker;
-    pub use crate::traits::Collection;
+    pub use crate::traits::Resource;
     pub use queries_for_sqlx::ident_safety::PanicOnUnsafe;
     pub use queries_for_sqlx::prelude::*;
     pub use queries_for_sqlx::quick_query::QuickQuery;

@@ -1,6 +1,6 @@
 pub mod derive_collection {
     pub use crate::queries_bridge::*;
-    pub use crate::traits::Collection;
+    pub use crate::traits::Resource;
     pub use crate::traits::Update;
     pub use queries_for_sqlx::SupportNamedBind;
     pub use sqlx::{
@@ -26,7 +26,7 @@ pub mod relation_macro {
     pub use crate::relations::optional_to_many::OptionalToManyDynamic;
     pub use crate::relations::optional_to_many_inverse::OptionalToManyInverse;
 
-    pub use crate::traits::Collection;
+    pub use crate::traits::Resource;
     pub use crate::dynamic_schema::SubmitDynRelation;
     pub use crate::relations::Linked;
 

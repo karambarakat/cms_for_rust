@@ -85,8 +85,8 @@ pub struct ManyToManyDynamic<From, To> {
 
 impl<From, To> ManyToManyDynamic<From, To>
 where
-    From: Collection<Sqlite>,
-    To: Collection<Sqlite>,
+    From: Resource<Sqlite>,
+    To: Resource<Sqlite>,
     From: Linked<To, Spec = ManyToMany>,
 {
     pub fn new() -> Self {
@@ -102,8 +102,8 @@ where
 
 impl<F, T> CompleteRelationForServer for ManyToManyDynamic<F, T>
 where
-    F: Collection<Sqlite> + 'static,
-    T: Collection<Sqlite>
+    F: Resource<Sqlite> + 'static,
+    T: Resource<Sqlite>
         + 'static
         + Serialize
         + DeserializeOwned,
@@ -259,8 +259,8 @@ where
 impl<Base, Destination> GetOneWorker
     for RelationWorker<ManyToMany, Base, Destination>
 where
-    Base: Collection<Sqlite>,
-    Destination: Collection<Sqlite>,
+    Base: Resource<Sqlite>,
+    Destination: Resource<Sqlite>,
 {
     type Inner = (Option<i64>, Vec<(i64, Destination)>);
     type Output = Vec<SimpleOutput<Destination>>;
@@ -323,8 +323,8 @@ where
 impl<B, T> InsertOneWorker
     for LinkIdWorker<B, T, ManyToMany, Vec<i64>>
 where
-    B: Collection<Sqlite>,
-    T: Collection<Sqlite>,
+    B: Resource<Sqlite>,
+    T: Resource<Sqlite>,
 {
     type Inner = (Option<i64>, Vec<T>);
 
@@ -390,8 +390,8 @@ where
 impl<B, T> UpdateOneWorker
     for UpdateIdWorker<B, T, ManyToMany, Vec<UpdateIdInput>>
 where
-    B: Collection<Sqlite>,
-    T: Collection<Sqlite>,
+    B: Resource<Sqlite>,
+    T: Resource<Sqlite>,
 {
     type Inner = (Option<i64>, Vec<i64>);
 
@@ -484,8 +484,8 @@ where
 
 impl<F, T> GetAllWorker for ManyWorker<F, T, ManyToMany>
 where
-    F: Collection<Sqlite>,
-    T: Collection<Sqlite>,
+    F: Resource<Sqlite>,
+    T: Resource<Sqlite>,
 {
     type Inner = HashMap<i64, Vec<SimpleOutput<T>>>;
 

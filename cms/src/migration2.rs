@@ -12,7 +12,7 @@ use queries_for_sqlx::{
 };
 use sqlx::{Pool, Sqlite};
 
-use crate::{queries_bridge::CreatTableSt, traits::Collection};
+use crate::{queries_bridge::CreatTableSt, traits::Resource};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Events {
@@ -40,7 +40,7 @@ pub trait DynMigration {
 
 impl<T> DynMigration for PhantomData<T>
 where
-    T: Collection<Sqlite>,
+    T: Resource<Sqlite>,
 {
     fn panic_on_unsafe_schema(&self) {
         queries_for_sqlx::ident_safety::append_schema(

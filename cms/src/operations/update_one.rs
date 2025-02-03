@@ -23,7 +23,7 @@ use crate::{
         many_to_many::ManyToMany,
         optional_to_many::OptionalToMany, LinkData, LinkId,
         LinkSpecCanInsert, Linked, Relation, UpdateId,
-    }, traits::Collection, tuple_index::TupleAsMap
+    }, traits::Resource, tuple_index::TupleAsMap
 };
 
 pub trait UpdateOneWorker: Sync + Send {
@@ -59,7 +59,7 @@ pub struct UpdateOneOp<C, L> {
     input: C,
 }
 
-pub fn update_one<C: Collection<Sqlite>>(
+pub fn update_one<C: Resource<Sqlite>>(
     input: C::PartailCollection,
 ) -> UpdateOneOp<C::PartailCollection, ()> {
     UpdateOneOp { links: (), input }

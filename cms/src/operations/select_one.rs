@@ -27,7 +27,7 @@ use crate::{
     filters::{ById, Filters},
     queries_bridge::SelectSt,
     relations::{relation, LinkData, Relation},
-    traits::Collection,
+    traits::Resource,
     tuple_index::{tuple_as_map::TupleElementKey, TupleAsMap},
 };
 
@@ -155,7 +155,7 @@ pub struct GetOneOutput<C, D> {
 
 impl<C, R, Q> GetOneOp<C, R, Q>
 where
-    C: Collection<Sqlite>,
+    C: Resource<Sqlite>,
     R: GetOneWorker + Send + Sync,
     Q: Filters<C>,
 {

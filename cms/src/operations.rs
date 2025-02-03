@@ -5,7 +5,7 @@ use sqlx::Sqlite;
 
 use crate::tuple_index::tuple_as_map::TupleElementKey;
 
-use crate::traits::Collection;
+use crate::traits::Resource;
 
 pub mod delete_one;
 pub mod insert_one;
@@ -26,13 +26,13 @@ pub struct IdOutput<C> {
     pub _pd: PhantomData<C>,
 }
 
-impl<C: Collection<Sqlite>> TupleElementKey for SimpleOutput<C> {
+impl<C: Resource<Sqlite>> TupleElementKey for SimpleOutput<C> {
     fn key() -> &'static str {
         C::table_name()
     }
 }
 
-impl<C: Collection<Sqlite>> TupleElementKey for IdOutput<C> {
+impl<C: Resource<Sqlite>> TupleElementKey for IdOutput<C> {
     fn key() -> &'static str {
         C::table_name()
     }

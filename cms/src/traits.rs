@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::marker::PhantomData;
 
 use queries_for_sqlx::SupportNamedBind;
 use serde::Serialize;
 use serde_json::Value;
-use sqlx::{sqlite::SqliteRow, Database, Sqlite};
+use sqlx::Database;
 
 use crate::queries_bridge::{
     CreatTableSt, InsertSt, SelectSt, UpdateSt,
@@ -37,7 +37,47 @@ pub trait DynValidate {
     ) -> Result<(), Value>;
 }
 
-pub trait Collection<S>: Sized + Send + Sync {
+trait SingleAction: Default {
+    fn list_itself(self);
+}
+
+// no op
+impl SingleAction for () {
+    fn list_itself(self) {
+        // no-op
+    }
+}
+
+trait CollectionAction<C, S> {
+    type Actions: SingleAction;
+    type Transformed;
+    // what would happen when super_admin is done
+    // modifing the given collection?
+    // 1. trigger a recompile?
+    // 2. mutate a static?
+    // 3. do nothing.
+    fn close();
+    fn open(self) -> Self::Transformed;
+    fn describe() -> Value;
+}
+
+impl<S, T: Resource<S>> CollectionAction<T, S>
+    for PhantomData<T>
+{
+    type Transformed = PhantomData<T>;
+    type Actions = ();
+    fn open(self) -> Self::Transformed {
+        self
+    }
+    fn close() {}
+    fn describe() -> Value {
+        serde_json::json!(
+            "this collection is closed for modification"
+        )
+    }
+}
+
+pub trait Resource<S>: Sized + Send + Sync {
     type PartailCollection;
     fn on_migrate(stmt: &mut CreatTableSt<S>)
     where
@@ -48,25 +88,26 @@ pub trait Collection<S>: Sized + Send + Sync {
     ) -> Result<(), String>
     where
         S: Database + SupportNamedBind;
-    fn members() -> &'static [&'static str];
-    fn members_scoped() -> &'static [&'static str];
-
-    fn table_name() -> &'static str;
     fn on_select(stmt: &mut SelectSt<S>)
     where
         S: Database + SupportNamedBind;
-    fn from_row_noscope(row: &<S as Database>::Row) -> Self
-    where
-        S: Database;
-    fn from_row_scoped(row: &<S as Database>::Row) -> Self
-    where
-        S: Database;
     fn on_insert(
         self,
         stmt: &mut InsertSt<S>,
     ) -> Result<(), String>
     where
         S: Database + SupportNamedBind;
+
+    fn members() -> &'static [&'static str];
+    fn members_scoped() -> &'static [&'static str];
+    fn table_name() -> &'static str;
+
+    fn from_row_noscope(row: &<S as Database>::Row) -> Self
+    where
+        S: Database;
+    fn from_row_scoped(row: &<S as Database>::Row) -> Self
+    where
+        S: Database;
 }
 
 /// used in update operation, similar to Option<T> but implement Serialize and Deserialize

@@ -5,17 +5,13 @@ use std::{
 };
 
 use inventory::collect;
-use queries_for_sqlx::{
-    ident_safety::{append_schema, PanicOnUnsafe},
-    prelude::*,
-    quick_query::QuickQuery,
-};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use queries_for_sqlx::prelude::*;
+use serde::{de::DeserializeOwned, Serialize};
 use serde_json::{from_value, Value};
 use sqlx::{sqlite::SqliteRow, Pool, Sqlite};
 use tokio::sync::RwLock;
 
-use crate::traits::Collection;
+use crate::traits::Resource;
 
 use super::{
     error::{self, insert::InsertError, GlobalError},
@@ -28,33 +24,66 @@ use super::{
     relations::prelude::GetOneWorker,
 };
 
-lazy_static::lazy_static! {
-    pub static ref COLLECTIONS: RwLock<HashMap<String, Box<dyn DynCollection>>> = {
-        let mut map = HashMap::default();
+use std::sync::LazyLock;
 
-        for collection in inventory::iter::<SubmitDynCollection> {
-            let obj = (collection.obj)();
-            map.insert(obj.table_name().to_owned(), obj);
-        }
+pub static COLLECTIONS: LazyLock<
+    RwLock<HashMap<String, Box<dyn DynCollection>>>,
+> = LazyLock::new(|| {
+    let mut map = HashMap::new();
 
-        return RwLock::new(map);
-    };
-    pub static ref RELATIONS: RwLock<HashMap<String, Vec<Arc<dyn CompleteRelationForServer>>>> = {
-        let mut map = HashMap::default();
+    for collection in inventory::iter::<SubmitDynCollection> {
+        let obj = (collection.obj)();
+        map.insert(obj.table_name().to_owned(), obj);
+    }
 
-        for relation in inventory::iter::<SubmitDynRelation> {
-            let obj = (relation.obj)();
-            let key = obj.list_iteself_under();
-            let ve: &mut Vec<_> = map.entry(key).or_default();
-            ve.push(obj.clone())
-        }
+    return RwLock::new(map);
+});
 
-       tracing::debug!("{:?}", map);
+pub static RELATIONS: LazyLock<
+    RwLock<
+        HashMap<String, Vec<Arc<dyn CompleteRelationForServer>>>,
+    >,
+> = LazyLock::new(|| {
+    let mut map = HashMap::default();
 
-        return RwLock::new(map);
+    for relation in inventory::iter::<SubmitDynRelation> {
+        let obj = (relation.obj)();
+        let key = obj.list_iteself_under();
+        let ve: &mut Vec<_> = map.entry(key).or_default();
+        ve.push(obj.clone())
+    }
 
-    };
-}
+    tracing::debug!("{:?}", map);
+
+    return RwLock::new(map);
+});
+
+// lazy_static::lazy_static! {
+//     pub static ref COLLECTIONS: RwLock<HashMap<String, Box<dyn DynCollection>>> = {
+//         let mut map = HashMap::default();
+//
+//         for collection in inventory::iter::<SubmitDynCollection> {
+//             let obj = (collection.obj)();
+//             map.insert(obj.table_name().to_owned(), obj);
+//         }
+//
+//         return RwLock::new(map);
+//     };
+//     pub static ref RELATIONS: RwLock<HashMap<String, Vec<Arc<dyn CompleteRelationForServer>>>> = {
+//         let mut map = HashMap::default();
+//
+//         for relation in inventory::iter::<SubmitDynRelation> {
+//             let obj = (relation.obj)();
+//             let key = obj.list_iteself_under();
+//             let ve: &mut Vec<_> = map.entry(key).or_default();
+//             ve.push(obj.clone())
+//         }
+//
+//         tracing::debug!("{:?}", map);
+//
+//         return RwLock::new(map);
+//     };
+// }
 
 pub struct SubmitDynRelation {
     pub obj: fn() -> Arc<dyn CompleteRelationForServer>,
@@ -462,7 +491,7 @@ impl From<ValidatedAndTyped> for InsertError {
 
 impl<T> DynCollection for PhantomData<T>
 where
-    T: Collection<Sqlite> + Serialize + 'static,
+    T: Resource<Sqlite> + Serialize + 'static,
     T: DeserializeOwned,
     T::PartailCollection: DeserializeOwned,
 {

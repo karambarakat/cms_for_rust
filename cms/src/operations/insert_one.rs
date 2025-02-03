@@ -29,7 +29,7 @@ use crate::{
         optional_to_many::OptionalToMany, LinkData, LinkId,
         LinkSpecCanInsert, Linked, Relation,
     },
-    traits::Collection,
+    traits::Resource,
     tuple_index::TupleAsMap,
 };
 

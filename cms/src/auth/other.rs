@@ -21,6 +21,26 @@ use sqlx::{
 
 use crate::auth::ijwt;
 
+pub async fn init_auth(db: Pool<Sqlite>) -> Result<(), String> {
+    std::env::var("JWT_SALT").map_err(|_| "JWT_SALT not set")?;
+
+    if let Some(token) = create_super_user_if_not_exist(db).await
+    {
+        let be = "http://localhost:3000";
+        let fe = "http://localhost:5173";
+        println!("Looks like you have no super user");
+        print!("Create your first at ");
+        println!(
+            "{fe}/auth/init?token={token}&backend_url={be}"
+        );
+        println!(
+            "Or initiate different database at the same page"
+        );
+    }
+
+    Ok(())
+}
+
 pub fn migration_st<S: Database>() -> &'static str {
     r#"
     CREATE TABLE IF NOT EXISTS _super_users (
@@ -72,8 +92,6 @@ impl<T: fmt::Debug> From<T> for AuthError {
         AuthError(format!("{value:?}"))
     }
 }
-
-
 
 impl IntoResponse for AuthError {
     fn into_response(self) -> axum::response::Response {

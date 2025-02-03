@@ -5,13 +5,17 @@ use axum::{
     Router,
 };
 use cms_for_rust::{
-    auth::{auth_router, create_super_user_if_not_exist}, axum_router::collections_router, cms_macros::{relation, standard_collection}, collections_editor::admin_router, initialization::verify_initialization, migration2::run_migration
+    auth::{
+        auth_router, create_super_user_if_not_exist, init_auth,
+    },
+    axum_router::collections_router,
+    cms_macros::{relation, standard_collection},
+    collections_editor::admin_router,
+    initialization::verify_initialization,
+    migration2::run_migration,
 };
 use sqlx::{Pool, Sqlite};
-use tower_http::{
-    cors::{self, CorsLayer},
-    trace::TraceLayer,
-};
+use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 #[standard_collection]
 pub struct Todo {
@@ -41,31 +45,15 @@ async fn main() {
 
     run_migration(pool.clone()).await.unwrap();
 
-    // how to parse input arg?
     let args: Vec<String> = std::env::args().collect();
     if let Some(uns) = args.get(1) {
+        // this is just en example, please use safer secret management
         if uns == "unsafe_init" {
-            // this is just en example, please use safer secret management
             std::env::set_var("JWT_SALT", "secret");
         }
     }
 
-    verify_initialization().expect("the app may not be initialized correctly");
-
-    if let Some(token) =
-        create_super_user_if_not_exist(pool.clone()).await
-    {
-        let be = "http://localhost:3000";
-        let fe = "http://localhost:5173";
-        println!("Looks like you have no super user");
-        print!("Create your first at ");
-        println!(
-            "{fe}/auth/init?token={token}&backend_url={be}"
-        );
-        println!(
-            "Or initiate different database at the same page"
-        );
-    }
+    init_auth(pool.clone()).await.unwrap();
 
     tracing_subscriber::FmtSubscriber::builder()
         .with_max_level(tracing::Level::DEBUG)

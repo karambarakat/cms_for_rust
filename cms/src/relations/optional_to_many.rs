@@ -68,8 +68,8 @@ impl<From, To> OptionalToManyDynamic<From, To> {
     pub fn new() -> Self
     where
         From: Linked<To, Spec = OptionalToMany>,
-        From: Collection<Sqlite> + Serialize + 'static,
-        To: Collection<Sqlite>,
+        From: Resource<Sqlite> + Serialize + 'static,
+        To: Resource<Sqlite>,
     {
         Self {
             list_itself_under: From::table_name().to_string(),
@@ -83,8 +83,8 @@ impl<From, To> OptionalToManyDynamic<From, To> {
 impl<From, To> CompleteRelationForServer
     for OptionalToManyDynamic<From, To>
 where
-    From: Collection<Sqlite> + Serialize + 'static,
-    To: Collection<Sqlite>
+    From: Resource<Sqlite> + Serialize + 'static,
+    To: Resource<Sqlite>
         + Serialize
         + 'static
         + DeserializeOwned,
@@ -285,8 +285,8 @@ where
 impl<From, To> GetOneWorker
     for RelationWorker<OptionalToMany, From, To>
 where
-    From: Send + Collection<Sqlite>,
-    To: Send + Collection<Sqlite>,
+    From: Send + Resource<Sqlite>,
+    To: Send + Resource<Sqlite>,
 {
     type Output = Option<SimpleOutput<To>>;
     type Inner = Option<(i64, To)>;
@@ -332,8 +332,8 @@ where
 impl<B, T> InsertOneWorker
     for LinkIdWorker<B, T, OptionalToMany, i64>
 where
-    B: Collection<Sqlite>,
-    T: Collection<Sqlite>,
+    B: Resource<Sqlite>,
+    T: Resource<Sqlite>,
 {
     type Inner = Option<T>;
 
@@ -392,8 +392,8 @@ where
 impl<B, T> UpdateOneWorker
     for UpdateIdWorker<B, T, OptionalToMany, Option<i64>>
 where
-    B: Collection<Sqlite>,
-    T: Collection<Sqlite>,
+    B: Resource<Sqlite>,
+    T: Resource<Sqlite>,
 {
     type Inner = Option<i64>;
 
@@ -418,8 +418,8 @@ where
 
 impl<F, T> GetAllWorker for ManyWorker<F, T, OptionalToMany>
 where
-    F: Collection<Sqlite>,
-    T: Collection<Sqlite>,
+    F: Resource<Sqlite>,
+    T: Resource<Sqlite>,
 {
     type Inner = HashMap<i64, SimpleOutput<T>>;
 
