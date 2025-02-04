@@ -1,9 +1,8 @@
-use std::collections::HashMap;
-
 use axum::{http::StatusCode, response::IntoResponse, Json};
 use case::CaseExt;
 use serde::Serialize;
 use serde_json::json;
+use std::collections::HashMap;
 
 #[derive(Debug)]
 pub struct Action(pub &'static str);
@@ -12,6 +11,7 @@ pub struct Action(pub &'static str);
 pub struct UserError {
     pub code: String,
     pub info: String,
+    /// in forms it's useful to assign error to each field
     pub structured: Option<HashMap<String, String>>,
     /// list of actions that the server suggest the user
     /// to take to resolve the error, in other words,
@@ -22,7 +22,7 @@ pub struct UserError {
 /// these are errors that have 4xx status codes, refer to
 /// https://developer.mozilla.org/en-US/docs/Web/HTTP/Status
 ///
-/// some errors are the fault of the server, these are 5xx
+/// some errors are the fault of the server (like bugs), these are 5xx
 /// please consider panicing on them, and they will be handled
 /// by axum
 ///
@@ -35,6 +35,23 @@ pub struct ClientError {
     pub canonical_reason: StatusCode,
     pub non_canonical_reason: Option<String>,
     pub user_error: Option<UserError>,
+}
+
+pub struct CatchAll;
+impl IntoResponse for CatchAll {
+    fn into_response(self) -> axum::response::Response {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({
+                "error": {
+                    "canonical_reason": "INTERNAL_SERVER_ERROR",
+                    "non_canonical_reason": null,
+                    "user_error": null,
+                },
+            })),
+        )
+            .into_response()
+    }
 }
 
 impl ClientError {

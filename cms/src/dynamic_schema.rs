@@ -11,7 +11,7 @@ use serde_json::{from_value, Value};
 use sqlx::{sqlite::SqliteRow, Pool, Sqlite};
 use tokio::sync::RwLock;
 
-use crate::traits::Resource;
+use crate::traits::Collection;
 
 use super::{
     error::{self, insert::InsertError, GlobalError},
@@ -491,7 +491,7 @@ impl From<ValidatedAndTyped> for InsertError {
 
 impl<T> DynCollection for PhantomData<T>
 where
-    T: Resource<Sqlite> + Serialize + 'static,
+    T: Collection<Sqlite> + Serialize + 'static,
     T: DeserializeOwned,
     T::PartailCollection: DeserializeOwned,
 {

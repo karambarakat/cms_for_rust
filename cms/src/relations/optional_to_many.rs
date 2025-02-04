@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use case::CaseExt;
-use queries_for_sqlx::create_table_st::CreateTableHeader;
 use serde::de::DeserializeOwned;
 use serde_json::from_value;
 
@@ -16,7 +15,7 @@ use crate::{
         update_one::UpdateOneWorker, IdOutput, SimpleOutput,
     },
     queries_bridge::{SelectSt, UpdateSt},
-    relations::{ManyWorker, UpdateId},
+    relations::ManyWorker,
 };
 
 use super::{
@@ -68,8 +67,8 @@ impl<From, To> OptionalToManyDynamic<From, To> {
     pub fn new() -> Self
     where
         From: Linked<To, Spec = OptionalToMany>,
-        From: Resource<Sqlite> + Serialize + 'static,
-        To: Resource<Sqlite>,
+        From: Collection<Sqlite> + Serialize + 'static,
+        To: Collection<Sqlite>,
     {
         Self {
             list_itself_under: From::table_name().to_string(),
@@ -83,8 +82,8 @@ impl<From, To> OptionalToManyDynamic<From, To> {
 impl<From, To> CompleteRelationForServer
     for OptionalToManyDynamic<From, To>
 where
-    From: Resource<Sqlite> + Serialize + 'static,
-    To: Resource<Sqlite>
+    From: Collection<Sqlite> + Serialize + 'static,
+    To: Collection<Sqlite>
         + Serialize
         + 'static
         + DeserializeOwned,
@@ -285,8 +284,8 @@ where
 impl<From, To> GetOneWorker
     for RelationWorker<OptionalToMany, From, To>
 where
-    From: Send + Resource<Sqlite>,
-    To: Send + Resource<Sqlite>,
+    From: Send + Collection<Sqlite>,
+    To: Send + Collection<Sqlite>,
 {
     type Output = Option<SimpleOutput<To>>;
     type Inner = Option<(i64, To)>;
@@ -332,8 +331,8 @@ where
 impl<B, T> InsertOneWorker
     for LinkIdWorker<B, T, OptionalToMany, i64>
 where
-    B: Resource<Sqlite>,
-    T: Resource<Sqlite>,
+    B: Collection<Sqlite>,
+    T: Collection<Sqlite>,
 {
     type Inner = Option<T>;
 
@@ -392,8 +391,8 @@ where
 impl<B, T> UpdateOneWorker
     for UpdateIdWorker<B, T, OptionalToMany, Option<i64>>
 where
-    B: Resource<Sqlite>,
-    T: Resource<Sqlite>,
+    B: Collection<Sqlite>,
+    T: Collection<Sqlite>,
 {
     type Inner = Option<i64>;
 
@@ -418,8 +417,8 @@ where
 
 impl<F, T> GetAllWorker for ManyWorker<F, T, OptionalToMany>
 where
-    F: Resource<Sqlite>,
-    T: Resource<Sqlite>,
+    F: Collection<Sqlite>,
+    T: Collection<Sqlite>,
 {
     type Inner = HashMap<i64, SimpleOutput<T>>;
 

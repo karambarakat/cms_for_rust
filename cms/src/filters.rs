@@ -1,7 +1,7 @@
 use queries_for_sqlx::prelude::*;
 use sqlx::Sqlite;
 
-use crate::traits::Resource;
+use crate::traits::Collection;
 
 use super::{
     operations::select_many::Pagination,
@@ -40,7 +40,7 @@ pub fn by_id(id: i64) -> ById {
     ById(id)
 }
 
-impl<C: Resource<Sqlite>> Filters<C> for ById {
+impl<C: Collection<Sqlite>> Filters<C> for ById {
     fn on_select(self, st: &mut SelectSt<Sqlite>) {
         st.where_(scoped(C::table_name(), "id").eq(self.0));
     }

@@ -7,9 +7,7 @@ use axum::{
     extract::{Request, State},
     http::{
         header::AUTHORIZATION, HeaderMap, HeaderValue, Response,
-        StatusCode,
     },
-    response::IntoResponse,
     Extension, Json,
 };
 use serde::Deserialize;
@@ -19,7 +17,7 @@ use sqlx::{
     Executor, IntoArguments, Pool, Sqlite,
 };
 
-use crate::auth::ijwt;
+use crate::{auth::ijwt, error::ClientError};
 
 pub async fn init_auth(db: Pool<Sqlite>) -> Result<(), String> {
     std::env::var("JWT_SALT").map_err(|_| "JWT_SALT not set")?;
@@ -93,24 +91,6 @@ impl<T: fmt::Debug> From<T> for AuthError {
     }
 }
 
-impl IntoResponse for AuthError {
-    fn into_response(self) -> axum::response::Response {
-        let reason = StatusCode::BAD_REQUEST.canonical_reason();
-        (
-            StatusCode::BAD_REQUEST,
-            Json(json!({
-                "error": {
-                    "canonical_reason": reason,
-                    "non_canonical_reason": null,
-                // the error can be handled
-                    "user_error": null,
-                },
-            })),
-        )
-            .into_response()
-    }
-}
-
 pub async fn create_super_user_if_not_exist(
     p: Pool<Sqlite>,
 ) -> Option<String> {
@@ -169,7 +149,7 @@ pub async fn can_init(
     user: Extension<IClaims>, // authenticated
     req: Request<Body>,
     next: axum::middleware::Next,
-) -> Result<Response<Body>, AuthError> {
+) -> Result<Response<Body>, ClientError> {
     if user.0.todos.get("privilege")
         != Some(&json!("init_application"))
     {
@@ -266,15 +246,16 @@ pub async fn need_super_user(
     headers: HeaderMap,
     mut req: Request<Body>,
     next: axum::middleware::Next,
-) -> Result<Response<Body>, AuthError> {
+) -> Result<Response<Body>, ClientError> {
     let bearer = headers
         .get(AUTHORIZATION)
-        .ok_or("no auth found")?
-        .to_str()?;
+        .ok_or("authorization not found")?
+        .to_str()
+        .unwrap();
 
     let bearer = bearer
         .strip_prefix("Bearer ")
-        .ok_or("should start with Bearer")?;
+        .ok_or("authorization should start with Bearer")?;
 
     let map = ijwt::verify_exp(bearer)?;
 

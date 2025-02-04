@@ -61,7 +61,7 @@ trait CollectionAction<C, S> {
     fn describe() -> Value;
 }
 
-impl<S, T: Resource<S>> CollectionAction<T, S>
+impl<S, T: Collection<S>> CollectionAction<T, S>
     for PhantomData<T>
 {
     type Transformed = PhantomData<T>;
@@ -77,7 +77,7 @@ impl<S, T: Resource<S>> CollectionAction<T, S>
     }
 }
 
-pub trait Resource<S>: Sized + Send + Sync {
+pub trait Collection<S>: Sized + Send + Sync {
     type PartailCollection;
     fn on_migrate(stmt: &mut CreatTableSt<S>)
     where

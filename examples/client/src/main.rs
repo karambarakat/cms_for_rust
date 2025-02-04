@@ -1,21 +1,22 @@
 use axum::{
-    handler::Handler,
     http::{header, HeaderValue, Method},
+    response::IntoResponse,
     routing::get,
     Router,
 };
 use cms_for_rust::{
-    auth::{
-        auth_router, create_super_user_if_not_exist, init_auth,
-    },
+    auth::{auth_router, init_auth},
     axum_router::collections_router,
     cms_macros::{relation, standard_collection},
     collections_editor::admin_router,
-    initialization::verify_initialization,
+    error::CatchAll,
     migration2::run_migration,
 };
 use sqlx::{Pool, Sqlite};
-use tower_http::{cors::CorsLayer, trace::TraceLayer};
+use tower_http::{
+    catch_panic::CatchPanicLayer, cors::CorsLayer,
+    trace::TraceLayer,
+};
 
 #[standard_collection]
 pub struct Todo {
@@ -60,10 +61,14 @@ async fn main() {
         .init();
 
     let app = Router::new()
+        .fallback(get(|| async { "404" }))
         .route("/", get(|| async { "api is working" }))
         .nest("/collectinos", collections_router())
         .nest("/admin", admin_router())
         .nest("/auth", auth_router())
+        .layer(CatchPanicLayer::custom(|_| {
+            CatchAll.into_response()
+        }))
         .layer(
             CorsLayer::new()
                 .allow_origin(

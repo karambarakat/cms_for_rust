@@ -19,7 +19,7 @@ use crate::{
         optional_to_many_inverse::OptionalToManyInverse,
         LinkSpec, Linked,
     },
-    traits::{DynValidate, Resource, Update},
+    traits::{DynValidate, Collection, Update},
 };
 use inventory::submit;
 use queries_for_sqlx::{
@@ -164,7 +164,7 @@ pub struct Partial {
     pub description: Update<Option<String>>,
 }
 
-impl Resource<Sqlite> for Todo {
+impl Collection<Sqlite> for Todo {
     fn on_migrate(stmt: &mut CreatTableSt<Sqlite>) {
         stmt.column("id", primary_key::<Sqlite>());
         stmt.column("title", col_type_check_if_null::<String>());
@@ -428,7 +428,7 @@ pub struct PartialCategory {
     pub cat_title: Update<String>,
 }
 
-impl Resource<Sqlite> for Category {
+impl Collection<Sqlite> for Category {
     type PartailCollection = PartialCategory;
     fn on_migrate(stmt: &mut CreatTableSt<Sqlite>) {
         stmt.column("id", primary_key::<Sqlite>());
@@ -588,7 +588,7 @@ pub struct PartialTag {
     pub tag_title: Update<String>,
 }
 
-impl Resource<Sqlite> for Tag {
+impl Collection<Sqlite> for Tag {
     type PartailCollection = PartialTag;
     fn on_migrate(stmt: &mut CreatTableSt<Sqlite>) {
         stmt.column("id", primary_key::<Sqlite>());

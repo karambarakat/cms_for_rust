@@ -3,27 +3,24 @@ use std::{future::Future, marker::PhantomData};
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
     Json,
 };
 use case::CaseExt;
-use queries_for_sqlx::{
-    ident_safety::PanicOnUnsafe, prelude::*,
-    quick_query::QuickQuery,
-};
+use queries_for_sqlx::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sqlx::{sqlite::SqliteRow, Pool, Sqlite};
 
 use crate::{
-    build_tuple::BuildTuple, dynamic_schema::{
-        DynamicRelationResult, ValidatedAndTyped, COLLECTIONS,
-        RELATIONS,
-    }, error::{self, insert::InsertError, GlobalError}, filters::ById, queries_bridge::UpdateSt, relations::{
-        many_to_many::ManyToMany,
-        optional_to_many::OptionalToMany, LinkData, LinkId,
-        LinkSpecCanInsert, Linked, Relation, UpdateId,
-    }, traits::Resource, tuple_index::TupleAsMap
+    build_tuple::BuildTuple,
+    dynamic_schema::{
+        DynamicRelationResult, COLLECTIONS, RELATIONS,
+    },
+    error::{self, insert::InsertError, GlobalError},
+    queries_bridge::UpdateSt,
+    relations::{LinkData, LinkSpecCanInsert, Linked, UpdateId},
+    traits::Collection,
+    tuple_index::TupleAsMap,
 };
 
 pub trait UpdateOneWorker: Sync + Send {
@@ -59,7 +56,7 @@ pub struct UpdateOneOp<C, L> {
     input: C,
 }
 
-pub fn update_one<C: Resource<Sqlite>>(
+pub fn update_one<C: Collection<Sqlite>>(
     input: C::PartailCollection,
 ) -> UpdateOneOp<C::PartailCollection, ()> {
     UpdateOneOp { links: (), input }
@@ -86,7 +83,7 @@ where
     }
     pub fn update_id<
         N,
-        /// this is what the spec require the input to be (mostly infered)
+        // this is what the spec require the input to be (mostly infered)
         I,
     >(
         self,

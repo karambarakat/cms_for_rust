@@ -60,8 +60,16 @@ export default component$(() => {
             }),
         });
 
-        if (!res.status.toString().startsWith("2")) {
+        let body = await res.json();
 
+        console.log(body);
+
+        if (res.status.toString() === "500") {
+            alert("ops, some server error occured")
+        }
+
+        if (res.status.toString().startsWith("4")) {
+            return [null, body.error];
         }
 
         let token = res.headers.get("X-token");

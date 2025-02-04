@@ -3,14 +3,10 @@ use std::{future::Future, marker::PhantomData};
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
     Json,
 };
 use case::CaseExt;
-use queries_for_sqlx::{
-    ident_safety::PanicOnUnsafe, prelude::*,
-    quick_query::QuickQuery,
-};
+use queries_for_sqlx::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sqlx::{sqlite::SqliteRow, Pool, Sqlite};
@@ -22,17 +18,13 @@ use crate::{
         RELATIONS,
     },
     error::{self, insert::InsertError},
-    filters::ById,
     queries_bridge::InsertSt,
-    relations::{
-        many_to_many::ManyToMany,
-        optional_to_many::OptionalToMany, LinkData, LinkId,
-        LinkSpecCanInsert, Linked, Relation,
-    },
-    traits::Resource,
+    relations::{LinkData, LinkId, LinkSpecCanInsert, Linked},
+    traits::Collection,
     tuple_index::TupleAsMap,
 };
 
+#[allow(unused)]
 pub trait InsertOneWorker: Sync + Send {
     type Inner: Default + Send + Sync;
     type Output;
@@ -116,7 +108,7 @@ where
     }
     pub fn link_id<
         N,
-        /// this is what the spec require the input to be (mostly infered)
+        // this is what the spec require the input to be (mostly infered)
         I,
     >(
         self,

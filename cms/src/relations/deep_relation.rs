@@ -7,7 +7,7 @@ use sqlx::sqlite::SqliteRow;
 use crate::{
     operations::{select_one::GetOneOutput, SimpleOutput},
     queries_bridge::SelectSt,
-    traits::Resource,
+    traits::Collection,
     tuple_index::{tuple_as_map::TupleElementKey, TupleAsMap},
 };
 
@@ -99,8 +99,8 @@ where
         + Sync,
     <FromTodo as Linked<ToCat>>::Spec: Send + Sync,
     // DeepTodo: Send + Sync,
-    FromTodo: Resource<Sqlite>,
-    ToCat: Resource<Sqlite>,
+    FromTodo: Collection<Sqlite>,
+    ToCat: Collection<Sqlite>,
 {
     type Inner = (
         // FromTodo:id

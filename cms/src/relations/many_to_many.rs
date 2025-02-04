@@ -1,9 +1,9 @@
-use std::{collections::HashMap, mem};
+use std::collections::HashMap;
 
 use case::CaseExt;
 use queries_for_sqlx::{
-    create_table_st::CreateTableHeader, delete_st,
-    insert_many_st::insert_many, select_st,
+    create_table_st::CreateTableHeader,
+    insert_many_st::insert_many,
 };
 use serde::de::DeserializeOwned;
 use serde_json::from_value;
@@ -17,16 +17,15 @@ use crate::{
     migration2::DynMigration,
     operations::{
         insert_one::InsertOneWorker, select_many::GetAllWorker,
-        update_one::UpdateOneWorker, IdOutput, SimpleOutput,
+        update_one::UpdateOneWorker, SimpleOutput,
     },
-    queries_bridge::{DeleteSt, InsertSt, SelectSt, UpdateSt},
+    queries_bridge::{DeleteSt, SelectSt},
     relations::ManyWorker,
 };
 
 use super::{
-    optional_to_many::OptionalToMany, prelude::*, LinkData,
-    LinkIdWorker, LinkSpecCanInsert, LinkSpecCanUpdate,
-    UpdateIdInput, UpdateIdWorker,
+    prelude::*, LinkIdWorker, LinkSpecCanInsert,
+    LinkSpecCanUpdate, UpdateIdInput, UpdateIdWorker,
 };
 
 #[derive(Clone)]
@@ -85,8 +84,8 @@ pub struct ManyToManyDynamic<From, To> {
 
 impl<From, To> ManyToManyDynamic<From, To>
 where
-    From: Resource<Sqlite>,
-    To: Resource<Sqlite>,
+    From: Collection<Sqlite>,
+    To: Collection<Sqlite>,
     From: Linked<To, Spec = ManyToMany>,
 {
     pub fn new() -> Self {
@@ -102,11 +101,8 @@ where
 
 impl<F, T> CompleteRelationForServer for ManyToManyDynamic<F, T>
 where
-    F: Resource<Sqlite> + 'static,
-    T: Resource<Sqlite>
-        + 'static
-        + Serialize
-        + DeserializeOwned,
+    F: Collection<Sqlite> + 'static,
+    T: Collection<Sqlite> + 'static + Serialize + DeserializeOwned,
 {
     fn list_iteself_under(&self) -> String {
         self.list_itself_under.clone()
@@ -259,8 +255,8 @@ where
 impl<Base, Destination> GetOneWorker
     for RelationWorker<ManyToMany, Base, Destination>
 where
-    Base: Resource<Sqlite>,
-    Destination: Resource<Sqlite>,
+    Base: Collection<Sqlite>,
+    Destination: Collection<Sqlite>,
 {
     type Inner = (Option<i64>, Vec<(i64, Destination)>);
     type Output = Vec<SimpleOutput<Destination>>;
@@ -323,8 +319,8 @@ where
 impl<B, T> InsertOneWorker
     for LinkIdWorker<B, T, ManyToMany, Vec<i64>>
 where
-    B: Resource<Sqlite>,
-    T: Resource<Sqlite>,
+    B: Collection<Sqlite>,
+    T: Collection<Sqlite>,
 {
     type Inner = (Option<i64>, Vec<T>);
 
@@ -390,8 +386,8 @@ where
 impl<B, T> UpdateOneWorker
     for UpdateIdWorker<B, T, ManyToMany, Vec<UpdateIdInput>>
 where
-    B: Resource<Sqlite>,
-    T: Resource<Sqlite>,
+    B: Collection<Sqlite>,
+    T: Collection<Sqlite>,
 {
     type Inner = (Option<i64>, Vec<i64>);
 
@@ -484,8 +480,8 @@ where
 
 impl<F, T> GetAllWorker for ManyWorker<F, T, ManyToMany>
 where
-    F: Resource<Sqlite>,
-    T: Resource<Sqlite>,
+    F: Collection<Sqlite>,
+    T: Collection<Sqlite>,
 {
     type Inner = HashMap<i64, Vec<SimpleOutput<T>>>;
 

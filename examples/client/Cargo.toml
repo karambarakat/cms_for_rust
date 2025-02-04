@@ -5,7 +5,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tower-http = { version = "0.5.2", features = ["trace", "cors"] }
+tower-http = { version = "0.5.2", features = ["trace", "cors", "catch-panic"] }
 tower = { version = "0.5.2", features = ["util"] }
 axum = { version = "0.8.1", features = ["tracing"] }
 cms_for_rust = { path = "../../cms" }
