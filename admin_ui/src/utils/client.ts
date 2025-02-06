@@ -1,6 +1,18 @@
 export const user_auth_state_event_target = new EventTarget();
 
+export type events = "login" | "logout";
 
+export type auth_state =
+    | { backend_url: string, auth_token: string } // can be at /panel/*
+    | { backend_url: string, auth_token: null } // should be at /auth/login
+    | { backend_url: null, auth_token: null }; // should be at /auth/init
+
+export const global_client: { auth: auth_state } = {
+    auth: {
+        backend_url: null,
+        auth_token: null,
+    }
+};
 
 export default class Client {
     load_token(): string | null {
@@ -26,7 +38,7 @@ export default class Client {
         return token;
     }
 
-    constructor() {
+    constructor(_: any) {
         this.load_token();
     }
 

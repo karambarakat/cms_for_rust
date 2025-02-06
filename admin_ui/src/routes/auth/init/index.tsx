@@ -13,26 +13,17 @@ type FormState = {
 
 type Params = { token: string, backend_url: string };
 
-export default component$(() => {
-    let params = useSignal<Params | null | "invalid">(null);
-    let loc = useNavigate();
-    useVisibleTask$(({ track }) => {
-        const url = new URL(window.location.href);
-        const token = url.searchParams.get('token');
-        const backend_url = url.searchParams.get('backend_url');
-        if (token && backend_url) {
-            params.value = { token, backend_url };
-        } else {
-            params.value = "invalid";
-        }
-    },
-        { strategy: "document-ready" }
-    );
-
-
+const ParamsSet = component$(({ params }: { params: Params }) => {
     const id = useId();
+    const loader = useSignal({
+        user_name: "",
+        email: "",
+        password: "",
+        confirm_password: "",
+    });
+
     const [form, { Form, Field }] = useForm<FormState>({
-        loader: useFormLoader(),
+        loader,
         validate: $((values) => {
             if (values.password !== values.confirm_password) {
                 return { confirm_password: "Passwords do not match" };
@@ -42,16 +33,11 @@ export default component$(() => {
     });
 
     const handle_submit = $<SubmitHandler<FormState>>(async (values, eve) => {
-        if (!(params.value as any).token) {
-            throw new Error("build-time error: do not use handle_submit unless you fetched the params")
-        }
-        let params_ = params.value as any as Params;
-
         let res = await fetch('http://localhost:3000/auth/init/sign_in_first', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${params_.token}`
+                'Authorization': `Bearer ${params.token}`
             },
             body: JSON.stringify({
                 user_name: values.user_name,
@@ -79,18 +65,9 @@ export default component$(() => {
 
         window.localStorage.setItem("token", token);
     });
-
-
-    return params.value === null ?
-        <div class="block txt-center">
-            <span class="loader" />
-        </div>
-        : params.value === "invalid" ?
-            <div class="block txt-center">
-                you don't have access to this page
-                redirect to <a href="/auth/login">login</a>
-            </div>
-            : <Fragment>
+    return (
+        <div>
+            <Fragment>
                 <div class="content txt-center m-b-base">
                     <h4>
                         Create superuser account
@@ -162,12 +139,97 @@ export default component$(() => {
                     </form>
                 </Form>
             </Fragment>
+
+        </div>
+    );
+});
+
+export default component$(() => {
+    let params = useSignal<Params | null | "invalid">(null);
+    let loc = useNavigate();
+    useVisibleTask$(({ track }) => {
+        const url = new URL(window.location.href);
+        const token = url.searchParams.get('token');
+        const backend_url = url.searchParams.get('backend_url');
+        if (token && backend_url) {
+            params.value = { token, backend_url };
+        } else {
+            params.value = "invalid";
+        }
+    },
+        { strategy: "document-ready" }
+    );
+
+
+
+    return params.value === null ?
+        <div class="block txt-center">
+            <span class="loader" />
+        </div>
+        : params.value === "invalid" ?
+            <div class="block txt-center">
+                Could not locate your backend:
+                <ManualSetUp signal={params} />
+            </div>
+            :
+            <ParamsSet params={params.value} />
 })
 
-export const useFormLoader = routeLoader$<InitialValues<FormState>>(() => ({
-    user_name: "",
-    email: "",
-    password: "",
-    confirm_password: "",
-}));
+const ManualSetUp = component$(({ signal }: { signal: Signal<null | Params | "invalid"> }) => {
+    const loader = useSignal<Params>({
+        backend_url: "",
+        token: "",
+    });
+
+    const [_, { Form, Field }] = useForm<Params>({
+        loader,
+        validate: $((values) => {
+            if (!values.backend_url || !values.token) {
+                return { backend_url: "required", token: "required" };
+            }
+            return {};
+        })
+    });
+
+    const handle_submit = $<SubmitHandler<Params>>(async (values) => {
+        signal.value = values;
+    });
+
+    return <div>
+        <Form onSubmit$={handle_submit}>
+            <div class="block">
+                <Field name="backend_url">{(field, props) => (
+                    <div class="form-field">
+                        <label>
+                            Backend URL
+                        </label>
+                        <input
+                            {...props}
+                            required
+                            type="string"
+                        />
+                        {field.error && <div class="invalid-feedback">{field.error}</div>}
+                    </div>
+                )}</Field>
+                <Field name="token">{(field, props) => (
+                    <div class="form-field">
+                        <label>
+                            Token
+                        </label>
+                        <input
+                            {...props}
+                            required
+                            type="string"
+                        />
+                        {field.error && <div class="invalid-feedback">{field.error}</div>}
+                    </div>
+                )}</Field>
+                <button type="submit" class={["btn btn-lg btn-block btn-next"]}>
+                    <span class="txt">Set up</span>
+                    <i class="ri-arrow-right-line" />
+                </button>
+            </div>
+        </Form>
+    </div>
+});
 
