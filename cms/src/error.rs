@@ -1,18 +1,17 @@
 use axum::{http::StatusCode, response::IntoResponse, Json};
-use case::CaseExt;
 use serde::Serialize;
 use serde_json::json;
 use std::collections::HashMap;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct Action(pub &'static str);
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct UserError {
     pub code: String,
-    pub info: String,
+    pub user_hint: String,
     /// in forms it's useful to assign error to each field
-    pub structured: Option<HashMap<String, String>>,
+    pub structured_hint: Option<HashMap<String, String>>,
     /// list of actions that the server suggest the user
     /// to take to resolve the error, in other words,
     /// the frontend dev doesn't have have to come up with them
@@ -32,24 +31,17 @@ pub struct UserError {
 /// these are `#.user_error = Some(...)`
 #[derive(Debug)]
 pub struct ClientError {
-    pub canonical_reason: StatusCode,
-    pub non_canonical_reason: Option<String>,
+    pub status_code: StatusCode,
+    // if its the frontend's responsiblity, they should have
+    // an english readable message in the console for help
+    pub dev_hint: String,
     pub user_error: Option<UserError>,
 }
 
-pub struct CatchAll;
-impl IntoResponse for CatchAll {
+pub struct PanicError;
+impl IntoResponse for PanicError {
     fn into_response(self) -> axum::response::Response {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({
-                "error": {
-                    "canonical_reason": "INTERNAL_SERVER_ERROR",
-                    "non_canonical_reason": null,
-                    "user_error": null,
-                },
-            })),
-        )
+        (StatusCode::INTERNAL_SERVER_ERROR, "server paniced")
             .into_response()
     }
 }
@@ -63,33 +55,13 @@ impl ClientError {
     ) -> Self {
         let mut user_error = UserError {
             code: code.to_string(),
-            info: info.to_string(),
-            structured: None,
+            user_hint: info.to_string(),
+            structured_hint: None,
             server_suggest: None,
         };
         opt(&mut user_error);
         self.user_error = Some(user_error);
         self
-    }
-}
-
-impl Default for ClientError {
-    fn default() -> Self {
-        ClientError {
-            canonical_reason: StatusCode::BAD_REQUEST,
-            non_canonical_reason: None,
-            user_error: None,
-        }
-    }
-}
-
-impl From<StatusCode> for ClientError {
-    fn from(value: StatusCode) -> Self {
-        ClientError {
-            canonical_reason: value,
-            non_canonical_reason: None,
-            user_error: None,
-        }
     }
 }
 
@@ -99,8 +71,8 @@ impl<T: Into<ClientError>> From<(StatusCode, T)>
     fn from(value: (StatusCode, T)) -> Self {
         let this: ClientError = value.1.into();
         ClientError {
-            canonical_reason: value.0,
-            non_canonical_reason: this.non_canonical_reason,
+            status_code: value.0,
+            dev_hint: this.dev_hint,
             user_error: this.user_error,
         }
     }
@@ -108,10 +80,9 @@ impl<T: Into<ClientError>> From<(StatusCode, T)>
 
 impl From<&'static str> for ClientError {
     fn from(value: &'static str) -> Self {
-        let non_canonical_reason = Some(value.to_snake());
         ClientError {
-            canonical_reason: StatusCode::BAD_REQUEST,
-            non_canonical_reason,
+            status_code: StatusCode::BAD_REQUEST,
+            dev_hint: value.to_string(),
             user_error: None,
         }
     }
@@ -119,10 +90,9 @@ impl From<&'static str> for ClientError {
 
 impl From<String> for ClientError {
     fn from(value: String) -> Self {
-        let non_canonical_reason = Some(value.to_snake());
         ClientError {
-            canonical_reason: StatusCode::BAD_REQUEST,
-            non_canonical_reason,
+            status_code: StatusCode::BAD_REQUEST,
+            dev_hint: value,
             user_error: None,
         }
     }
@@ -130,30 +100,32 @@ impl From<String> for ClientError {
 
 impl IntoResponse for ClientError {
     fn into_response(self) -> axum::response::Response {
-        if self.canonical_reason.is_server_error() {
+        if self.status_code.is_server_error() {
             panic!("Server errors are not meant to be handled by 'ClientError': {:?}", self);
         }
 
-        let canonical_reason = self
-            .canonical_reason
-            .canonical_reason()
-            .unwrap_or("INTERNAL_SERVER_ERROR");
+        let hint = self.dev_hint;
 
-        let non_canonical_reason = self.non_canonical_reason;
+        let hint = if let Some(info) =
+            self.status_code.canonical_reason()
+        {
+            format!("{info}: {hint}")
+        } else {
+            hint
+        };
 
-        let user_error = ();
+        let user_error = self.user_error;
 
-        (
-            self.canonical_reason,
+        return (
+            self.status_code,
             Json(json!({
                 "error": {
-                    "canonical_reason": canonical_reason,
-                    "non_canonical_reason": non_canonical_reason,
+                    "hint": hint,
                     "user_error": user_error,
                 },
             })),
         )
-            .into_response()
+            .into_response();
     }
 }
 

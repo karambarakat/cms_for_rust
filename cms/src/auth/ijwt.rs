@@ -1,3 +1,4 @@
+use axum::http::StatusCode;
 use chrono::DateTime;
 use chrono::Utc;
 use hmac::Hmac;
@@ -7,6 +8,9 @@ use jwt::VerifyWithKey;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashMap;
+
+use crate::error::ClientError;
+use crate::error::UserError;
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct IClaims {
@@ -72,7 +76,35 @@ fn verify_or(data: &str) -> Option<()> {
     Some(())
 }
 
-pub fn verify_exp(data: &str) -> Result<IClaims, String> {
+pub enum TokenError {
+    TokenExpired,
+    TokenInvalid,
+}
+
+impl From<TokenError> for ClientError {
+    fn from(value: TokenError) -> Self {
+        match value {
+            TokenError::TokenExpired => ClientError {
+                status_code: StatusCode::UNAUTHORIZED,
+                dev_hint: "token is valid but has expired"
+                    .to_owned(),
+                user_error: Some(UserError {
+                    code: "token_expired".to_owned(),
+                    user_hint: "session has expired".to_owned(),
+                    structured_hint: None,
+                    server_suggest: None,
+                }),
+            },
+            TokenError::TokenInvalid => ClientError {
+                status_code: StatusCode::UNAUTHORIZED,
+                dev_hint: "invalid signature".to_owned(),
+                user_error: None,
+            },
+        }
+    }
+}
+
+pub fn verify_exp(data: &str) -> Result<IClaims, TokenError> {
     let env =
         std::env::var("JWT_SALT").expect("JWT_SALT not set");
 
@@ -82,13 +114,13 @@ pub fn verify_exp(data: &str) -> Result<IClaims, String> {
 
     let claims: IClaims = data
         .verify_with_key(&key)
-        .map_err(|_| "token invalid")?;
+        .map_err(|_| TokenError::TokenInvalid)?;
 
     let exp = DateTime::from_timestamp(claims.exp, 0).unwrap();
     let now = Utc::now();
 
     if exp < now {
-        return Err("token expired")?;
+        Err(TokenError::TokenExpired)?;
     }
 
     Ok(claims)

@@ -29,6 +29,8 @@ fn hash_pass(ser: &mut String) {
 pub struct EmailPassword {
     pub email: String,
     pub password: String,
+    #[allow(unused)]
+    private_to_construct: ()
 }
 
 impl<'d> Deserialize<'d> for EmailPassword {
@@ -44,6 +46,7 @@ impl<'d> Deserialize<'d> for EmailPassword {
         Ok(EmailPassword {
             email: basic.email,
             password: basic.password,
+            private_to_construct: (),
         })
     }
 }
@@ -60,7 +63,7 @@ impl<S: Sync> FromRequestParts<S> for EmailPassword {
 
     async fn from_request_parts(
         parts: &mut Parts,
-        state: &S,
+        _: &S,
     ) -> Result<Self, Self::Rejection> {
         let basic = parts
             .headers
@@ -69,7 +72,8 @@ impl<S: Sync> FromRequestParts<S> for EmailPassword {
         let basic = basic.to_str().map_err(|e| e.to_string())?;
         let basic =
             basic.strip_prefix("Basic ").ok_or("basic token")?;
-        let mut basic = EmailPassword::from_base64(basic)
+        // from_base64 uses Deserialize, which hash the pass
+        let basic = EmailPassword::from_base64(basic)
             .map_err(|e| e.to_string())?;
 
         Ok(basic)

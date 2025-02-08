@@ -10,6 +10,7 @@ use axum::{
     },
     Extension, Json,
 };
+use jwt::ToBase64;
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::{
@@ -22,14 +23,21 @@ use crate::{auth::ijwt, error::ClientError};
 pub async fn init_auth(db: Pool<Sqlite>) -> Result<(), String> {
     std::env::var("JWT_SALT").map_err(|_| "JWT_SALT not set")?;
 
-    if let Some(token) = create_super_user_if_not_exist(db).await
+    if let Some(init_token) =
+        create_super_user_if_not_exist_and_return_init_token(db)
+            .await
     {
         let be = "http://localhost:3000";
         let fe = "http://localhost:5173";
+
+        let be = ToBase64::to_base64(&String::from(be))
+            .unwrap()
+            .to_string();
+
         println!("Looks like you have no super user");
         print!("Create your first at ");
         println!(
-            "{fe}/auth/init?token={token}&backend_url={be}"
+            "{fe}/auth/init?init_token={init_token}&backend_url={be}"
         );
         println!(
             "Or initiate different database at the same page"
@@ -42,11 +50,10 @@ pub async fn init_auth(db: Pool<Sqlite>) -> Result<(), String> {
 pub fn migration_st<S: Database>() -> &'static str {
     r#"
     CREATE TABLE IF NOT EXISTS _super_users (
-        id SERIAL,
-        user_name TEXT NOT NULL,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_name TEXT,
         email TEXT,
-        password TEXT,
-        PRIMARY KEY (user_name, email)
+        password TEXT
     );
     "#
 }
@@ -91,7 +98,7 @@ impl<T: fmt::Debug> From<T> for AuthError {
     }
 }
 
-pub async fn create_super_user_if_not_exist(
+pub async fn create_super_user_if_not_exist_and_return_init_token(
     p: Pool<Sqlite>,
 ) -> Option<String> {
     sqlx::query(migration_st::<Sqlite>())
@@ -109,16 +116,22 @@ SELECT Count(*) FROM _super_users;
     .unwrap();
 
     if count.0 == 0 {
-        let id: (i32,) = sqlx::query_as(
+        sqlx::query(
             "
-INSERT INTO _super_users (user_name) VALUES (\"super_admin\") RETURNING (id);
+INSERT INTO _super_users (user_name) VALUES (\"super_admin\");
 ",
         )
-        .fetch_one(&p)
+        .execute(&p)
         .await
         .unwrap();
 
-        let id = id.0;
+        let id: (Option<i32>,) =
+            sqlx::query_as("SELECT id FROM _super_users;")
+                .fetch_one(&p)
+                .await
+                .unwrap();
+
+        let id = id.0.unwrap();
 
         let token = ijwt::sign_and(
             &id.to_string(),
@@ -167,16 +180,16 @@ pub async fn sign_in_existing(
 ) -> Result<(), ()> {
     sqlx::query(
         "
-    UPDATE _super_user SET 
+    UPDATE _super_users SET 
        user_name = $1, 
        email = $2, 
-       password = $4 
-    INTO _super_user WHERE id = $4",
+       password = $3 
+    ",
     )
     .bind(body.0.user_name)
     .bind(body.0.email_password.email)
     .bind(body.0.email_password.password)
-    .bind(user.0.id)
+    // .bind(user.0.id)
     .fetch_one(&db.0)
     .await
     .unwrap();
@@ -273,7 +286,7 @@ pub async fn need_super_user(
 
     // I don't want to use cookies for potentioal misuse
     res.headers_mut().append(
-        "X-token",
+        "X-Cms-Token",
         HeaderValue::from_str(&token).unwrap(),
     );
 

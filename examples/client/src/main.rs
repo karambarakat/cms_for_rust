@@ -1,5 +1,5 @@
 use axum::{
-    http::{header, HeaderValue, Method},
+    http::{header, HeaderName, HeaderValue, Method},
     response::IntoResponse,
     routing::get,
     Router,
@@ -80,6 +80,7 @@ async fn main() {
                 .allow_headers([
                     header::CONTENT_TYPE,
                     header::AUTHORIZATION,
+                    HeaderName::from_bytes(b"X-Cms-Token").unwrap(),
                 ]),
         )
         .layer(TraceLayer::new_for_http())

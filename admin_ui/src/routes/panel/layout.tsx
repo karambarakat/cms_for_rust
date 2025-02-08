@@ -1,9 +1,9 @@
 import { Slot, component$, useSignal, useVisibleTask$ } from "@builder.io/qwik";
-import { global_client, user_auth_state_event_target } from "../../utils/client";
+import { global_client, auth_event_target } from "../../utils/client";
 
 export default component$(() => {
     const pass = useSignal(false);
-    useVisibleTask$(() => {
+    useVisibleTask$(({ cleanup }) => {
         if (
             global_client.auth.auth_token === null
             || global_client.auth.backend_url === null
@@ -13,13 +13,15 @@ export default component$(() => {
             pass.value = true;
         }
 
-        user_auth_state_event_target.addEventListener("all_null", () => {
+        let cb = auth_event_target.add_event_listener("logout", () => {
             pass.value = false;
         });
 
-        user_auth_state_event_target.addEventListener("all_set", () => {
-            pass.value = true;
-        });
+        cleanup(() => {
+            auth_event_target.remove_event_listener("logout", cb);
+        })
+
+
     }, { strategy: "document-ready" });
 
     const href = useSignal("/auth/login");
