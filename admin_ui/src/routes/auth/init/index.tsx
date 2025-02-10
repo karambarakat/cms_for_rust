@@ -1,7 +1,10 @@
 import { $, Fragment, Signal, component$, useId, useSignal, useVisibleTask$ } from "@builder.io/qwik";
 import { routeLoader$, useNavigate } from "@builder.io/qwik-city";
-import { InitialValues, SubmitHandler, formAction$, useForm } from "@modular-forms/qwik";
-import { fetch_client } from "~/utils/client";
+import { FormError, InitialValues, SubmitHandler, formAction$, useForm } from "@modular-forms/qwik";
+import { fetch_client } from "~/utils/client2";
+import * as v from "valibot";
+
+
 
 type FormState = {
     user_name: string;
@@ -78,6 +81,8 @@ const ManualSetUp = component$(({ signal }: { signal: Signal<null | Params | "in
         signal.value = values;
     });
 
+
+
     return <div>
         <Form onSubmit$={handle_submit}>
             <div class="block">
@@ -121,6 +126,16 @@ const ManualSetUp = component$(({ signal }: { signal: Signal<null | Params | "in
     </div>
 });
 
+const user_error = v.object({
+    code: v.string(),
+    user_hint: v.string(),
+});
+
+const FormErrorComponent = component$(({ error }: { error: string }) => {
+    let { code, user_hint } = v.parse(user_error, error);
+    return <div>{user_hint}</div>
+})
+
 
 const ParamsNotNull = component$(({ params }: { params: Params }) => {
     const id = useId();
@@ -145,17 +160,11 @@ const ParamsNotNull = component$(({ params }: { params: Params }) => {
         })
     });
 
-    type Schema =
-        | {
-            action: "auth/init/sign_in_first", input: {
-                user_name: string,
-                email: string,
-                password: string,
-            }, output: {}, error: string
-        }
 
+
+    const nav = useNavigate();
     const handle_submit = $<SubmitHandler<FormState>>(async (values, eve) => {
-        let res = await fetch_client<Schema, "auth/init/sign_in_first">(
+        let [ok, err] = await fetch_client(
             "auth/init/sign_in_first",
             {
                 user_name: values.user_name,
@@ -165,18 +174,23 @@ const ParamsNotNull = component$(({ params }: { params: Params }) => {
             { backend_url: params.backend_url, auth_token: params.init_token }
         );
 
-        if (res[0]) {
-            // I should see localStoreage has token
-            let token = window.localStorage.getItem("token");
-            if (!token) {
-                throw new Error("build-time error: auth/init/sign_in_first should set localStorage token")
-            }
+        // the token will be set by the fetch_client (hopefully?)
+        localStorage.setItem("backend_url", params.backend_url);
 
-            // found unvalid
-            window.localStorage.setItem("backend_url", params.backend_url);
+        if (err !== null) {
+            throw new FormError<FormState>(
+                JSON.stringify(
+                    { code: err.code, user_hint: err.user_hint }
+                ),
+                err.structured_hint as any
+            );
         }
 
+        if (ok) {
+            nav("/panel");
+        }
     });
+
     return (
         <Fragment>
             <div class="content txt-center m-b-base">
@@ -184,70 +198,69 @@ const ParamsNotNull = component$(({ params }: { params: Params }) => {
                     Create superuser account
                 </h4>
             </div>
-            <Form onSubmit$={handle_submit}>
-                <form class="block">
-                    <Field name="user_name">{(field, props) => (
-                        <div class="form-field required">
-                            <label for={id + "_user_name"}>
-                                User Name
-                            </label>
-                            <input
-                                id={id + "_user_name"}
-                                {...props}
-                                required
-                                type="string"
-                            />
-                            {field.error && <div class="invalid-feedback">{field.error}</div>}
-                        </div>
-                    )}</Field>
-                    <Field name="email">{(field, props) => (
-                        <div class="form-field required">
-                            <label for={id + "_email"}>
-                                Email
-                            </label>
-                            <input
-                                id={id + "_email"}
-                                {...props}
-                                required
-                                type="email"
-                            />
-                            {field.error && <div class="invalid-feedback">{field.error}</div>}
-                        </div>
-                    )}</Field>
-                    <Field name="password">{(field, props) => (
-                        <div class="form-field required">
-                            <label for={id + "_password"}>
-                                Password
-                            </label>
-                            <input
-                                id={id + "_password"}
-                                {...props}
-                                required
-                                type="password"
-                            />
-                            {field.error && <div class="invalid-feedback">{field.error}</div>}
-                        </div>
-                    )}</Field>
-                    <Field name="confirm_password">{(field, props) => (
-                        <div class="form-field required">
-                            <label for={id + "_confirm_password"}>
-                                Confirm password
-                            </label>
-                            <input
-                                id={id + "_confirm_password"}
-                                {...props}
-                                required
-                                type="password"
-                            />
-                            {field.error && <div class="invalid-feedback">{field.error}</div>}
-                        </div>
-                    )}</Field>
+            {form.response.message && <FormErrorComponent error={form.response.message} />}
+            <Form class="block" onSubmit$={handle_submit}>
+                <Field name="user_name">{(field, props) => (
+                    <div class="form-field required">
+                        <label for={id + "_user_name"}>
+                            User Name
+                        </label>
+                        <input
+                            id={id + "_user_name"}
+                            {...props}
+                            required
+                            type="string"
+                        />
+                        {field.error && <div class="invalid-feedback">{field.error}</div>}
+                    </div>
+                )}</Field>
+                <Field name="email">{(field, props) => (
+                    <div class="form-field required">
+                        <label for={id + "_email"}>
+                            Email
+                        </label>
+                        <input
+                            id={id + "_email"}
+                            {...props}
+                            required
+                            type="email"
+                        />
+                        {field.error && <div class="invalid-feedback">{field.error}</div>}
+                    </div>
+                )}</Field>
+                <Field name="password">{(field, props) => (
+                    <div class="form-field required">
+                        <label for={id + "_password"}>
+                            Password
+                        </label>
+                        <input
+                            id={id + "_password"}
+                            {...props}
+                            required
+                            type="password"
+                        />
+                        {field.error && <div class="invalid-feedback">{field.error}</div>}
+                    </div>
+                )}</Field>
+                <Field name="confirm_password">{(field, props) => (
+                    <div class="form-field required">
+                        <label for={id + "_confirm_password"}>
+                            Confirm password
+                        </label>
+                        <input
+                            id={id + "_confirm_password"}
+                            {...props}
+                            required
+                            type="password"
+                        />
+                        {field.error && <div class="invalid-feedback">{field.error}</div>}
+                    </div>
+                )}</Field>
 
-                    <button type="submit" class={["btn btn-lg btn-block btn-next"]}>
-                        <span class="txt">Login</span>
-                        <i class="ri-arrow-right-line" />
-                    </button>
-                </form>
+                <button type="submit" class={["btn btn-lg btn-block btn-next"]}>
+                    <span class="txt">Login</span>
+                    <i class="ri-arrow-right-line" />
+                </button>
             </Form>
         </Fragment>
     );

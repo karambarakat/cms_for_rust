@@ -1,7 +1,18 @@
-use axum::{http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    handler::Handler, http::StatusCode, response::IntoResponse,
+    Json,
+};
 use serde::Serialize;
 use serde_json::json;
 use std::collections::HashMap;
+
+pub struct PanicError;
+impl IntoResponse for PanicError {
+    fn into_response(self) -> axum::response::Response {
+        (StatusCode::INTERNAL_SERVER_ERROR, "server paniced")
+            .into_response()
+    }
+}
 
 #[derive(Debug, Serialize)]
 pub struct Action(pub &'static str);
@@ -36,14 +47,6 @@ pub struct ClientError {
     // an english readable message in the console for help
     pub dev_hint: String,
     pub user_error: Option<UserError>,
-}
-
-pub struct PanicError;
-impl IntoResponse for PanicError {
-    fn into_response(self) -> axum::response::Response {
-        (StatusCode::INTERNAL_SERVER_ERROR, "server paniced")
-            .into_response()
-    }
 }
 
 impl ClientError {
@@ -104,14 +107,14 @@ impl IntoResponse for ClientError {
             panic!("Server errors are not meant to be handled by 'ClientError': {:?}", self);
         }
 
-        let hint = self.dev_hint;
+        let dev_hint = self.dev_hint;
 
-        let hint = if let Some(info) =
+        let dev_hint = if let Some(info) =
             self.status_code.canonical_reason()
         {
-            format!("{info}: {hint}")
+            format!("{info}: {dev_hint}")
         } else {
-            hint
+            dev_hint
         };
 
         let user_error = self.user_error;
@@ -120,7 +123,7 @@ impl IntoResponse for ClientError {
             self.status_code,
             Json(json!({
                 "error": {
-                    "hint": hint,
+                    "dev_hint": dev_hint,
                     "user_error": user_error,
                 },
             })),

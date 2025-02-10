@@ -8,6 +8,7 @@ use axum::{
     http::{
         header::AUTHORIZATION, HeaderMap, HeaderValue, Response,
     },
+    response::IntoResponse,
     Extension, Json,
 };
 use jwt::ToBase64;
@@ -81,10 +82,17 @@ where
         .await
         .expect("Failed to insert super user");
 
-        let token = ijwt::sign_for(
-            &id.0.to_string(),
-            chrono::Duration::minutes(30),
-        );
+        let args: Vec<String> = std::env::args().collect();
+        let dur = match args.get(1).map(|s| s.as_str()) {
+            Some("unsafe_init") => {
+                chrono::Duration::days(4)
+            }
+            _ => {
+                chrono::Duration::minutes(30)
+            }
+        };
+
+        let token = ijwt::sign_for(&id.0.to_string(), dur);
 
         println!("Super user token: {}", token);
     }
@@ -177,24 +185,25 @@ pub async fn sign_in_existing(
     user: Extension<IClaims>, // authenticated
     db: State<Pool<Sqlite>>,
     body: Json<SetupFirstUser>,
-) -> Result<(), ()> {
+) -> Result<Response<Body>, ()> {
     sqlx::query(
         "
     UPDATE _super_users SET 
        user_name = $1, 
        email = $2, 
        password = $3 
+    WHERE id = $4;
     ",
     )
     .bind(body.0.user_name)
     .bind(body.0.email_password.email)
     .bind(body.0.email_password.password)
-    // .bind(user.0.id)
-    .fetch_one(&db.0)
+    .bind(user.0.id)
+    .execute(&db.0)
     .await
     .unwrap();
 
-    Ok(())
+    Ok(Json(json!({"data": null})).into_response())
 }
 
 #[axum::debug_handler]

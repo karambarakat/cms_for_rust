@@ -41,7 +41,7 @@ pub fn auth_router() -> Router<Pool<Sqlite>> {
 }
 
 #[cfg(test)]
-mod tests {
+mod auth_router_test {
     use axum::{
         body::Body,
         http::{Method, Request},
@@ -65,9 +65,8 @@ mod tests {
         .await
         .expect("new db therfore token should be generated");
 
-        let app = auth_router().with_state(pool.clone());
-
-        let res = app
+        let res = auth_router()
+            .with_state(pool.clone())
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
@@ -77,7 +76,14 @@ mod tests {
                         format!("Bearer {}", token),
                     )
                     .uri("/init/sign_in_first")
-                    .body(Body::from(json!({}).to_string()))
+                    .body(Body::from(
+                        json!({
+                            "email": "test@example.com",
+                            "user_name": "test",
+                            "password": "test",
+                        })
+                        .to_string(),
+                    ))
                     .unwrap(),
             )
             .await
@@ -89,12 +95,6 @@ mod tests {
         let res_text =
             String::from_utf8(res_text.into()).unwrap();
 
-        panic!("{:?}", res_text);
-
-        if res.status().is_success() {
-            panic!("failed to sign in first");
-        }
-
-        //
+        panic!("why {:?}", res_text);
     }
 }

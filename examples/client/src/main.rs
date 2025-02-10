@@ -9,7 +9,7 @@ use cms_for_rust::{
     axum_router::collections_router,
     cms_macros::{relation, standard_collection},
     collections_editor::admin_router,
-    error::CatchAll,
+    error::PanicError,
     migration2::run_migration,
 };
 use sqlx::{Pool, Sqlite};
@@ -67,7 +67,7 @@ async fn main() {
         .nest("/admin", admin_router())
         .nest("/auth", auth_router())
         .layer(CatchPanicLayer::custom(|_| {
-            CatchAll.into_response()
+            PanicError.into_response()
         }))
         .layer(
             CorsLayer::new()
@@ -77,10 +77,13 @@ async fn main() {
                         .unwrap(),
                 )
                 .allow_methods([Method::POST])
+                .expose_headers([HeaderName::from_bytes(
+                    b"X-Cms-Token",
+                )
+                .unwrap()])
                 .allow_headers([
                     header::CONTENT_TYPE,
                     header::AUTHORIZATION,
-                    HeaderName::from_bytes(b"X-Cms-Token").unwrap(),
                 ]),
         )
         .layer(TraceLayer::new_for_http())
