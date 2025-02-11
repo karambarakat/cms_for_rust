@@ -1,4 +1,5 @@
 import { Slot, component$, useStylesScoped$ } from "@builder.io/qwik";
+import { client_state_provider } from "~/utils/client2";
 
 export default component$(() => {
     useStylesScoped$(`
@@ -12,10 +13,8 @@ export default component$(() => {
     `);
 
     return (
-        <div
-            class="whole"
-        >
+        <div class="whole">
             <Slot />
         </div>
-    );
+    )
 });
