@@ -1,8 +1,9 @@
 import { $, Fragment, Signal, component$, useId, useSignal, useVisibleTask$ } from "@builder.io/qwik";
 import { routeLoader$, useNavigate } from "@builder.io/qwik-city";
 import { FormError, InitialValues, SubmitHandler, formAction$, useForm } from "@modular-forms/qwik";
-import { fetch_client } from "~/utils/client2";
+import { fetch_client } from "~/utils/client_fetch";
 import * as v from "valibot";
+import { authenticate, use_client_state, use_gaurd, use_gaurd_or_redirect } from "~/utils/client_state";
 
 
 
@@ -42,13 +43,14 @@ export default component$(() => {
         { strategy: "document-ready" }
     );
 
+    const gaurd = use_gaurd_or_redirect("need_set_up");
+
     // because document-ready is not as eager as I want
     // and to prevent layout-shift,
     //
     // I will display loading until the the task has completed
-
-    if (loading.value) {
-        return <div class="block txt-center">
+    if (loading.value || !gaurd.value) {
+        return <div class="txt-center">
             <div class="loader" />
         </div>
     }
@@ -164,7 +166,7 @@ const ParamsNotNull = component$(({ params }: { params: Params }) => {
 
     const nav = useNavigate();
     const handle_submit = $<SubmitHandler<FormState>>(async (values, eve) => {
-        let [ok, err] = await fetch_client(
+        let res = await fetch_client(
             "auth/init/sign_in_first",
             {
                 user_name: values.user_name,
@@ -174,19 +176,16 @@ const ParamsNotNull = component$(({ params }: { params: Params }) => {
             { backend_url: params.backend_url, auth_token: params.init_token }
         );
 
-        // the token will be set by the fetch_client (hopefully?)
-        localStorage.setItem("backend_url", params.backend_url);
 
-        if (err !== null) {
+        if (!res.success) {
             throw new FormError<FormState>(
                 JSON.stringify(
-                    { code: err.code, user_hint: err.user_hint }
+                    { code: res.err.code, user_hint: res.err.user_hint }
                 ),
-                err.structured_hint as any
+                res.err.structured_hint as any
             );
-        }
-
-        if (ok) {
+        } else {
+            // the token will be set by the fetch_client (hopefully?)
             nav("/panel");
         }
     });

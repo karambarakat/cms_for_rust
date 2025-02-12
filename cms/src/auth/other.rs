@@ -215,7 +215,7 @@ pub async fn login(
 ) -> Result<(), ()> {
     let id: (i32,) = sqlx::query_as(
         "
-SELECT id FROM _super_user WHERE passsword = $1 AND email = $2",
+SELECT id FROM _super_users WHERE passsword = $1 AND email = $2",
     )
     .bind(basic_safe.password)
     .bind(basic_safe.email)
