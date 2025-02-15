@@ -11,6 +11,7 @@ use cms_for_rust::{
     collections_editor::admin_router,
     error::PanicError,
     migration2::run_migration,
+    schema_info::schema_router,
 };
 use sqlx::{Pool, Sqlite};
 use tower_http::{
@@ -66,6 +67,8 @@ async fn main() {
         .nest("/collectinos", collections_router())
         .nest("/admin", admin_router())
         .nest("/auth", auth_router())
+        .with_state(pool.clone())
+        .nest("/schema", schema_router())
         .layer(CatchPanicLayer::custom(|_| {
             PanicError.into_response()
         }))
@@ -86,8 +89,7 @@ async fn main() {
                     header::AUTHORIZATION,
                 ]),
         )
-        .layer(TraceLayer::new_for_http())
-        .with_state(pool.clone());
+        .layer(TraceLayer::new_for_http());
 
     let listner = tokio::net::TcpListener::bind("0.0.0.0:3000")
         .await

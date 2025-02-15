@@ -28,6 +28,17 @@ export const no_connection = () => {
     events.dispatchEvent(new Event("no_connection"));
 }
 
+
+export const get_auth_state = () => {
+    let state = localStorage.getItem("client_state");
+    if (!state) {
+        return { success: false as const, err: "no client_state" }
+    }
+
+    return { success: true as const, ok: { backend_url: "", auth_token: "" } }
+
+}
+
 export const authenticate = ({ base_url, token }: { base_url: string, token: string }) => {
     let store: client_state = { state: "authenticated", base_url, token };
     localStorage.setItem("client_state", JSON.stringify(store));

@@ -16,6 +16,7 @@ pub mod queries_bridge;
 pub mod queries_for_sqlx_extention;
 pub mod relations;
 pub mod row_to_json_cached;
+pub mod schema_info;
 pub mod traits;
 pub mod tuple_impls;
 pub mod tuple_index;

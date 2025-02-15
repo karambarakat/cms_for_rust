@@ -19,7 +19,16 @@ const server_error_schema =
             })
     })
 
+// @depricate
+export const schema_endpoint_schema = v.object({});
+
 type Schema =
+    | {
+        action: "schema",
+        input: null,
+        output: v.InferOutput<typeof schema_endpoint_schema>,
+        error: null
+    }
     | {
         action: "auth/init/sign_in_first",
         input: {
@@ -62,6 +71,9 @@ export async function fetch_client
         | { success: true, ok: S extends { action: A, output: infer O } ? O : never }
         | { success: false, err: v.InferOutput<typeof server_error_schema>["error"]["user_error"] }
     > {
+    if (!auth_state.backend_url) {
+        throw new Error("build-time error");
+    }
     let res =
         await fetch(`${auth_state.backend_url}/${action}`, {
             method: 'POST',
