@@ -1,7 +1,9 @@
 import { $ } from "@builder.io/qwik";
 import { SubmitHandler } from "@modular-forms/qwik";
 import * as v from "valibot";
-import { authenticate, logout, no_connection } from "./client_state";
+import { authenticate, client_state_schema, logout, set_state } from "./client_state";
+import { schema_endpoint_schema } from "./schema";
+import { parse } from "valibot";
 
 const server_error_schema =
     v.object({
@@ -18,9 +20,6 @@ const server_error_schema =
                 })
             })
     })
-
-// @depricate
-export const schema_endpoint_schema = v.object({});
 
 type Schema =
     | {
@@ -48,17 +47,18 @@ type Schema =
         error: string
     }
 
-function token_is_invalid(token: string): boolean {
-    // check if token is expired
-    let payload = token.split(".")[1];
-    let decoded = JSON.parse(atob(payload));
-    let exp = decoded.exp;
-    let now = Math.floor(Date.now() / 1000);
-    if (now > exp) {
-        return true;
-    }
-    return false;
-}
+// function token_is_invalid(token: string): boolean {
+//     // check if token is expired
+//     let payload = token.split(".")[1];
+//     let decoded = JSON.parse(atob(payload));
+//     let exp = decoded.exp;
+//     let now = Math.floor(Date.now() / 1000);
+//     if (now > exp) {
+//         return true;
+//     }
+//     return false;
+// }
+
 
 export async function fetch_client
     <S extends Schema, A extends Schema["action"]>
@@ -71,9 +71,7 @@ export async function fetch_client
         | { success: true, ok: S extends { action: A, output: infer O } ? O : never }
         | { success: false, err: v.InferOutput<typeof server_error_schema>["error"]["user_error"] }
     > {
-    if (!auth_state.backend_url) {
-        throw new Error("build-time error");
-    }
+    parse(client_state_schema, auth_state)
     let res =
         await fetch(`${auth_state.backend_url}/${action}`, {
             method: 'POST',
@@ -88,31 +86,40 @@ export async function fetch_client
         });
 
     if ("catched" in res) {
-        // network error
-        if (res.catched instanceof TypeError) {
-            // this means either:
-            // 1. the internet has disconnected
-            // 2. auth_state.backend_url is not accepting requests
-            //
-            // I need to know which one is which
-            // I have no idea how to handle error in a good way in javascript
-            //
-            // this client should be able to connect to localhost too, so it doesn't matter if we are connected to the internet or not
-            //
-            // for now let just redirect to authentification page
-            no_connection();
+        // this means either:
+        // 1. the internet has disconnected
+        // 2. auth_state.backend_url is not accepting requests
+        //
+        // I need to know which one is which
+        // I have no idea how to handle error in a good way in javascript
+        //
+        // this client should be able to connect to localhost too, so it doesn't matter if we are connected to the internet or not
+        //
+        // for now let just redirect to authentification page
+        set_state(() => {
             return {
-                success: false,
-                err: {
-                    code: "network_error",
-                    user_hint: "network error",
-                }
+                state: "no_connection",
+                backend_url: auth_state.backend_url,
+                token: auth_state.auth_token
             }
+        })
+
+
+        if (!(res.catched instanceof TypeError && res.catched.message == "Failed to fetch")) {
+            // I'm not sure if I'm catching all the errors
+            // here is possiblilities:
+            // 3. TypeError.message is not standardized accross browsers
+            // 4. there are error that fetch can throw that I'm not taking into account
+            console.error("uncaught error in fetch", res.catched);
         }
 
-        alert("catch unkown error in fetch");
-        console.log(res.catched);
-        throw res.catched
+        return {
+            success: false,
+            err: {
+                code: "network_error",
+                user_hint: "network error",
+            }
+        }
     }
 
 
@@ -123,6 +130,11 @@ export async function fetch_client
     }
 
     // any other error should be json
+    // this is enforced by the my CMS at the backend
+    if (!res.headers.get("content-type")?.includes("application/json")) {
+        console.error("response is not json", res);
+    }
+
     let json = await res.json();
 
     if (res.status.toString().startsWith("4")) {

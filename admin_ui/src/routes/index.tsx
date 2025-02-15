@@ -1,5 +1,6 @@
-import { component$, useId, useSignal, useStylesScoped$, useVisibleTask$ } from "@builder.io/qwik";
+import { component$, useStylesScoped$, useVisibleTask$ } from "@builder.io/qwik";
 import type { DocumentHead } from "@builder.io/qwik-city";
+import { get_auth_state, use_client_state } from "~/utils/client_state";
 
 export default component$(() => {
     useStylesScoped$(`
@@ -12,10 +13,19 @@ export default component$(() => {
     text-align: center
 }
     `);
+
+    let state = use_client_state();
+
     return (
         <div class="root-index">
             <div>
                 Welcome to CMS
+                {
+                    state.value.state === "loading" ? <div style={{ opacity: 0 }}>loading</div> :
+                        state.value.state === "authenticated" ?
+                            <div>go to <a href="/panel">panel</a></div>
+                            : <div>you are not authinticated, go to <a href="/auth/login">login</a></div>
+                }
             </div>
         </div>
     );

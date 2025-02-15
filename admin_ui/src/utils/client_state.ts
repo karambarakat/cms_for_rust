@@ -6,6 +6,18 @@ const client_state_context = createContextId<Signal<client_state>>("client_state
 
 const events = new EventTarget();
 
+function token_is_valie(token: string): boolean {
+    // check if token is expired
+    let payload = token.split(".")[1];
+    let decoded = JSON.parse(atob(payload));
+    let exp = decoded.exp;
+    let now = Math.floor(Date.now() / 1000);
+    if (now > exp) {
+        return true;
+    }
+    return false;
+}
+
 class SetData extends Event {
     data: client_state;
     constructor(cb: (old: client_state) => client_state) {
@@ -20,29 +32,34 @@ export const set_state =
         events.dispatchEvent(new SetData(cb));
     }
 
+// @deprecated
 export const logout = () => {
     events.dispatchEvent(new Event("logout"));
 }
 
-export const no_connection = () => {
-    events.dispatchEvent(new Event("no_connection"));
-}
 
 
+// this is a function to be used outside the boundary of component
 export const get_auth_state = () => {
     let state = localStorage.getItem("client_state");
     if (!state) {
         return { success: false as const, err: "no client_state" }
     }
 
-    return { success: true as const, ok: { backend_url: "", auth_token: "" } }
+    let parsed = v.safeParse(client_state_schema, JSON.parse(state));
+
+    if (!parsed.success) {
+        return { success: false as const, err: "client_state is invalid" }
+    }
+
+    return { success: true as const, ok: parsed.output }
 
 }
 
 export const authenticate = ({ base_url, token }: { base_url: string, token: string }) => {
-    let store: client_state = { state: "authenticated", base_url, token };
+    let store: client_state = { state: "authenticated", backend_url: base_url, token };
     localStorage.setItem("client_state", JSON.stringify(store));
-    set_state((_ol) => ({ state: "authenticated", base_url, token }));
+    set_state((_ol) => ({ state: "authenticated", backend_url: base_url, token }));
     // events.dispatchEvent(new Event("login"));
 }
 
@@ -59,7 +76,7 @@ export const client_state_provider = () => {
         if (parsed.success) {
             sig.value = parsed.output;
         } else {
-            sig.value = { state: "need_set_up", base_url: null, token: null };
+            sig.value = { state: "need_set_up" };
         }
     }, { strategy: "document-ready" });
 
@@ -84,8 +101,7 @@ export const client_state_provider = () => {
             if (sig.value.state === "authenticated") {
                 sig.value = {
                     state: "need_auth",
-                    base_url: sig.value.base_url,
-                    token: null
+                    backend_url: sig.value.backend_url,
                 };
             } else {
                 throw new Error("should not logout while you are not authenticated")
@@ -150,30 +166,40 @@ export const use_client_state = () => {
     return ctx;
 }
 
-export const client_state_schema = v.union([
+const backend_url = v.pipe(v.string(), v.url());
+const token = v.pipe(v.string(), v.minLength(1));
+
+export const client_state_schema = v.variant("state", [
     v.object({
         state: v.literal("authenticated"),
-        base_url: v.string(),
-        token: v.string(),
+        backend_url,
+        token,
     }),
     v.object({
         state: v.literal("no_connection"),
-        base_url: v.union([v.string(), v.null()]),
-        token: v.union([v.string(), v.null()]),
+        backend_url: v.nullable(backend_url),
+        token: v.nullable(token),
     }),
     v.object({
         state: v.literal("need_auth"),
-        base_url: v.string(),
-        token: v.null(),
+        backend_url: backend_url,
     }),
     v.object({
         state: v.literal("loading"),
     }),
     v.object({
         state: v.literal("need_set_up"),
-        base_url: v.null(),
-        token: v.null(),
     }),
 ]);
+
+const client_state_schema2 = v.pipe(
+    client_state_schema,
+    v.transform((input) => {
+        if (input.state === "authenticated" && !token_is_valie(input.token)) {
+            return { state: "need_auth", backend_url: input.backend_url }
+        }
+        return input
+    })
+);
 
 export type client_state = v.InferOutput<typeof client_state_schema>;
