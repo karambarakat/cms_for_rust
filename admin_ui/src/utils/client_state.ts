@@ -53,7 +53,6 @@ export const get_auth_state = () => {
     }
 
     return { success: true as const, ok: parsed.output }
-
 }
 
 export const authenticate = ({ base_url, token }: { base_url: string, token: string }) => {
@@ -63,7 +62,7 @@ export const authenticate = ({ base_url, token }: { base_url: string, token: str
     // events.dispatchEvent(new Event("login"));
 }
 
-export const global_client_state: { value: Exclude<client_state, { state: "loading" }> } = { value: { state: "need_set_up", base_url: null, token: null } };
+export const global_client_state: { value: client_state } = { value: { state: "loading" } };
 
 export const client_state_provider = () => {
     let sig = useSignal<client_state>({ state: "loading" });
@@ -83,10 +82,10 @@ export const client_state_provider = () => {
     // keep global value in sync
     useVisibleTask$(({ track }) => {
         track(() => sig.value);
-        if (sig.value.state === "loading") return;
         global_client_state.value = sig.value;
     });
 
+    // accept mutation globally
     useVisibleTask$(({ cleanup }) => {
         function to(ev: SetData) {
             sig.value = ev.data
@@ -95,31 +94,31 @@ export const client_state_provider = () => {
         cleanup(() => events.removeEventListener("set_data", to as any));
     });
 
-    // listen for events
-    useVisibleTask$(({ cleanup }) => {
-        const logout = () => {
-            if (sig.value.state === "authenticated") {
-                sig.value = {
-                    state: "need_auth",
-                    backend_url: sig.value.backend_url,
-                };
-            } else {
-                throw new Error("should not logout while you are not authenticated")
-            }
-        }
-        events.addEventListener("logout", logout);
-        cleanup(() => events.removeEventListener("logout", logout));
-
-        const auth = () => {
-            const state = localStorage.getItem("client_state");
-            if (!state) throw new Error()
-            const pars = v.parse(client_state_schema, JSON.parse(state));
-            sig.value = pars;
-        }
-
-        events.addEventListener("login", auth);
-        cleanup(() => events.removeEventListener("login", auth));
-    });
+    // // @deprecated
+    // useVisibleTask$(({ cleanup }) => {
+    //     const logout = () => {
+    //         if (sig.value.state === "authenticated") {
+    //             sig.value = {
+    //                 state: "need_auth",
+    //                 backend_url: sig.value.backend_url,
+    //             };
+    //         } else {
+    //             throw new Error("should not logout while you are not authenticated")
+    //         }
+    //     }
+    //     events.addEventListener("logout", logout);
+    //     cleanup(() => events.removeEventListener("logout", logout));
+    //
+    //     const auth = () => {
+    //         const state = localStorage.getItem("client_state");
+    //         if (!state) throw new Error()
+    //         const pars = v.parse(client_state_schema, JSON.parse(state));
+    //         sig.value = pars;
+    //     }
+    //
+    //     events.addEventListener("login", auth);
+    //     cleanup(() => events.removeEventListener("login", auth));
+    // });
 };
 
 const gaurd_context = createContextId<Signal<boolean>>("gaurd_context");

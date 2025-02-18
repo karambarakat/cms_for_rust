@@ -1,0 +1,39 @@
+.breadcrumbs {
+    display: flex;
+    align-items: center;
+    gap: 30px;
+    color: var(--txtDisabledColor);
+    .breadcrumb_item {
+        // @extend h2;
+        position: relative;
+        margin: 0;
+        line-height: 1;
+        font-weight: normal;
+        &:after {
+            content: '/';
+            position: absolute;
+            right: -20px;
+            top: 0;
+            width: 10px;
+            text-align: center;
+            pointer-events: none;
+            opacity: 0.4;
+        }
+        &:last-child {
+            word-break: break-word;
+            color: var(--txtPrimaryColor);
+            &:after {
+                content: none;
+                display: none;
+            }
+        }
+    }
+    a {
+        text-decoration: none;;
+        color: inherit;
+        transition: color var(--baseAnimationSpeed);
+        &:hover {
+            color: var(--txtPrimaryColor);
+        }
+    }
+}

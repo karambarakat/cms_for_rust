@@ -2,6 +2,7 @@ pub use cms_macros;
 pub mod auth;
 pub mod axum_router;
 pub mod build_tuple;
+pub mod uniform_response_layer;
 #[cfg(test)]
 pub mod client_example;
 pub mod collections_editor;

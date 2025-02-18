@@ -173,7 +173,7 @@ const ParamsNotNull = component$(({ params }: { params: Params }) => {
                 email: values.email,
                 password: values.password,
             },
-            { backend_url: params.backend_url, auth_token: params.init_token }
+            { backend_url: params.backend_url, token: params.init_token }
         );
 
 

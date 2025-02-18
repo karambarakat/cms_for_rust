@@ -6,7 +6,7 @@ import { fetch_client } from "./client_fetch";
 
 export const ctx = createContextId<Signal<Schema>>("schema");
 
-export const schema_endpoint_schema = v.array(v.object({
+export const one_schema = v.object({
     name: v.string(),
     fields: v.array(v.object({
         name: v.string(),
@@ -15,7 +15,9 @@ export const schema_endpoint_schema = v.array(v.object({
             v.literal("Todo"),
         ])
     }))
-}));
+});
+
+export const schema_endpoint_schema = v.array(one_schema);
 
 type Schema = InferOutput<typeof schema_endpoint_schema>;
 
@@ -36,7 +38,7 @@ export const use_schema_provider = () => {
         }
 
         let state = get_auth_state();
-        if (!state.success) {
+        if (!state.success || state.ok.state !== "authenticated") {
             pass.value = { ty: "error", err: "you are not authorized to perform this action" }
             return
         }
@@ -65,15 +67,17 @@ export const use_schema_provider = () => {
     return pass
 }
 
+// this hook is only to be used inside the boundary of component
 export const use_schema = () => {
     let sc = useContext(ctx);
+    let once = useSignal(false);
     useVisibleTask$(({ track }) => {
         track(() => sc.value);
-        if (!sc.value) {
-            console.error("you should not render this page until schema is loaded")
-            throw new Error("schema not found in context")
+        if (!sc.value && once.value) {
+            console.warn("you should not use use_schema in a page until its provider is used")
         }
+        once.value = true;
     });
 
-    return sc.value as Schema | null
+    return sc as Signal<Schema | null>
 }

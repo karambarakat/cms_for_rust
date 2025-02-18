@@ -1,15 +1,17 @@
 use axum::{
     http::{header, HeaderName, HeaderValue, Method},
+    middleware::from_fn,
     response::IntoResponse,
-    routing::get,
+    routing::{self, get},
     Router,
 };
 use cms_for_rust::{
+    uniform_response_layer::uniform_response_middleware,
     auth::{auth_router, init_auth},
     axum_router::collections_router,
     cms_macros::{relation, standard_collection},
     collections_editor::admin_router,
-    error::PanicError,
+    error::{ClientError, PanicError},
     migration2::run_migration,
     schema_info::schema_router,
 };
@@ -62,14 +64,34 @@ async fn main() {
         .init();
 
     let app = Router::new()
-        .fallback(get(|| async { "404" }))
+        .fallback(routing::any(|| async {
+            ClientError::endpoint_not_found()
+        }))
         .route("/", get(|| async { "api is working" }))
-        .nest("/collectinos", collections_router())
+        .nest("/collection", collections_router())
         .nest("/admin", admin_router())
         .nest("/auth", auth_router())
         .with_state(pool.clone())
         .nest("/schema", schema_router())
+        .layer(from_fn(uniform_response_middleware))
         .layer(CatchPanicLayer::custom(|_| {
+            // todo
+            // 1. send this error to developers
+            // 2. make an id out of it (hash it or add it to a static) and send it to user
+            //
+            // 3. advanced: have a different layer that integrate with std::panic::set_hook
+            //  3.1. get the location of the panic
+
+            // let _err: &str = if let Some(e) =
+            //     ty.downcast_ref::<String>()
+            // {
+            //     Some(e.as_str())
+            // } else if let Some(e) = ty.downcast_ref::<&str>()
+            // {
+            //     Some(*e)
+            // } else {
+            //     None
+            // };
             PanicError.into_response()
         }))
         .layer(

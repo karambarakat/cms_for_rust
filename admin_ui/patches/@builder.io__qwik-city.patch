@@ -1,0 +1,32 @@
+diff --git a/lib/index.qwik.cjs b/lib/index.qwik.cjs
+index 315ef5ac4708b5358440e53ad481e00a88deb58d..5a0729f1096f53e28f928b648b78fc8b55580f65 100644
+--- a/lib/index.qwik.cjs
++++ b/lib/index.qwik.cjs
+@@ -848,7 +848,10 @@ const QwikCityProvider = qwik.component$((props) => {
+     actionState.value = void 0;
+     routeLocation.isNavigating = true;
+     return new Promise((resolve) => {
+-      navResolver.r = resolve;
++      navResolver.r = () => {
++        routeLocation.isNavigating = false;
++        resolve()
++      };
+     });
+   });
+   qwik.useContextProvider(ContentContext, content);
+diff --git a/lib/index.qwik.mjs b/lib/index.qwik.mjs
+index fa13283b86074195706d620f8b90a43001447686..0f50dfc0e986a1237214c9bc62ea18f092c61921 100644
+--- a/lib/index.qwik.mjs
++++ b/lib/index.qwik.mjs
+@@ -830,7 +830,10 @@ const QwikCityProvider = component$((props) => {
+     actionState.value = void 0;
+     routeLocation.isNavigating = true;
+     return new Promise((resolve) => {
+-      navResolver.r = resolve;
++      navResolver.r = () => {
++        routeLocation.isNavigating = false;
++        resolve()
++      };
+     });
+   });
+   useContextProvider(ContentContext, content);

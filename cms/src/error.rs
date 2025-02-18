@@ -50,6 +50,16 @@ pub struct ClientError {
 }
 
 impl ClientError {
+    pub fn endpoint_not_found() -> Self {
+        ClientError {
+            status_code: StatusCode::NOT_FOUND,
+            dev_hint: "endpoint (not the resourse) not found".to_string(),
+            user_error: None,
+        }
+    }
+}
+
+impl ClientError {
     pub fn add_user_error(
         mut self,
         code: &str,

@@ -1,5 +1,5 @@
 import { $, Fragment, component$, useComputed$, useSignal, useStylesScoped$, useVisibleTask$ } from "@builder.io/qwik";
-import { routeLoader$ } from "@builder.io/qwik-city";
+import { Link, routeLoader$ } from "@builder.io/qwik-city";
 import { setValue, useForm } from "@modular-forms/qwik";
 import { use_client_state } from "~/utils/client_state";
 import * as v from "valibot";
@@ -119,6 +119,12 @@ export default component$(() => {
     overflow: hidden;
     text-overflow: ellipsis;
 }
+.go_back {
+    display: block;
+    text-align: center;
+    display: block;
+    margin-top: 10px;
+}
         `);
 
     return (
@@ -161,6 +167,11 @@ export default component$(() => {
                     <button onClick$={test} type="submit" class={["btn btn-lg btn-block btn-next"]}>
                         <span class="txt">Test Again</span>
                     </button>
+                        <span class="go_back">
+                    <Link href="/panel">
+                        go back to panel
+                    </Link>
+                    </span>
                 </Fragment>}
             </Form>
         </Fragment >

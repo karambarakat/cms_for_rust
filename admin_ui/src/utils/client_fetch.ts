@@ -23,6 +23,10 @@ const server_error_schema =
 
 type Schema =
     | {
+        action: `collection/${string}/get_many`,
+        input: "sdf", output: null, error: null
+    }
+    | {
         action: "schema",
         input: null,
         output: v.InferOutput<typeof schema_endpoint_schema>,
@@ -65,7 +69,7 @@ export async function fetch_client
     (
         action: A,
         input: S extends { action: A, input: infer I } ? I : never,
-        auth_state: { backend_url: string, auth_token: string },
+        auth_state: { backend_url: string, token: string },
         abort_signal?: AbortSignal,
     ): Promise<
         | { success: true, ok: S extends { action: A, output: infer O } ? O : never }
@@ -78,7 +82,7 @@ export async function fetch_client
             signal: abort_signal,
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${auth_state.auth_token}`
+                'Authorization': `Bearer ${auth_state.token}`
             },
             body: JSON.stringify(input),
         }).catch((e) => {
@@ -100,7 +104,7 @@ export async function fetch_client
             return {
                 state: "no_connection",
                 backend_url: auth_state.backend_url,
-                token: auth_state.auth_token
+                token: auth_state.token
             }
         })
 

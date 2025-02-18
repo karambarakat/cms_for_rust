@@ -4,6 +4,7 @@ import { use_schema } from "~/utils/schema";
 
 export default component$(() => {
     const navigate = useNavigate();
+
     useVisibleTask$(() => {
         navigate("/panel/collections");
     }, { strategy: "document-ready" });
