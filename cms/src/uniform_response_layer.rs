@@ -1,6 +1,10 @@
 use axum::{
-    body::Body, extract::Request, http::Response,
-    middleware::Next, response::IntoResponse, Json,
+    body::Body,
+    extract::Request,
+    http::{header::CONTENT_TYPE, Response},
+    middleware::Next,
+    response::IntoResponse,
+    Json,
 };
 use http_body_util::BodyExt;
 use serde_json::json;
@@ -11,12 +15,11 @@ pub async fn uniform_response_middleware(
     next: Next,
 ) -> Response<Body> {
     let res = next.run(req).await;
-
     let s = res.status();
     if s.is_client_error() || s.is_server_error() {
-        if let Some(ct) = res.headers().get("content-type") {
-            if ct == "plain/text" {
-                let (parts, body) = res.into_parts();
+        if let Some(ct) = res.headers().get(CONTENT_TYPE) {
+            if ct == "text/plain; charset=utf-8" {
+                let (mut parts, body) = res.into_parts();
                 let body = String::from_utf8(
                     body.collect()
                         .await
@@ -25,12 +28,16 @@ pub async fn uniform_response_middleware(
                         .into(),
                 )
                 .unwrap();
+                parts.headers.insert(
+                    CONTENT_TYPE,
+                    "application/json".parse().unwrap(),
+                );
                 let body = format!("Unknown error: {}", body);
                 return (
                     parts,
                     Json(json!({
                         "error": {
-                            "dev_hint": body,
+                            "hint": body,
                             "user_error": null,
                         },
                     })),

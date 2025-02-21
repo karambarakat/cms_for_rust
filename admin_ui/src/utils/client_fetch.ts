@@ -4,20 +4,21 @@ import * as v from "valibot";
 import { authenticate, client_state_schema, logout, set_state } from "./client_state";
 import { schema_endpoint_schema } from "./schema";
 import { parse } from "valibot";
+import { ResultTy } from "./valibot_ext";
 
 const server_error_schema =
     v.object({
         error:
             v.object({
                 hint: v.string(),
-                user_error: v.object({
+                user_error: v.nullable(v.object({
                     code: v.string(),
                     user_hint: v.string(),
                     structured_hint: v.optional(v.map(v.string(), v.string())),
                     server_suggest: v.optional(v.array(
                         v.string()
                     ))
-                })
+                }))
             })
     })
 
@@ -72,8 +73,9 @@ export async function fetch_client
         auth_state: { backend_url: string, token: string },
         abort_signal?: AbortSignal,
     ): Promise<
-        | { success: true, ok: S extends { action: A, output: infer O } ? O : never }
-        | { success: false, err: v.InferOutput<typeof server_error_schema>["error"]["user_error"] }
+        ResultTy<
+            S extends { action: A, output: infer O } ? O : never,
+            v.InferOutput<typeof server_error_schema>["error"]["user_error"]>
     > {
     parse(client_state_schema, auth_state)
     let res =
@@ -142,7 +144,7 @@ export async function fetch_client
     let json = await res.json();
 
     if (res.status.toString().startsWith("4")) {
-        let body = v.parse(server_error_schema, await res.json());
+        let body = v.parse(server_error_schema, json);
         if (body.error.user_error) {
             // user can handle this error
             return { success: false, err: body.error.user_error }
