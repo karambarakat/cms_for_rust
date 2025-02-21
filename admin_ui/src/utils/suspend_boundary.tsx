@@ -73,7 +73,26 @@ export const use_boundary = () => {
             <div class="content"><Slot /></div>
         </div>;
     });
+}
 
+export function use_computed_suspend<Ret>(fn: QRL<(tf: TaskCtx) => Promise<Ret>>) {
+    let ctx = useContext(boundary_ctx)
+    useTask$(() => {
+        ctx.add_listener(fn);
+    });
+    let ret = useSignal<Ret | undefined>(undefined);
+    useVisibleTask$(async (task_ctx) => {
+        try {
+            ret.value = await fn(task_ctx)
+        }
+        catch (e: unknown) {
+            console.warn("handling errors is not (correctly) implemented yet");
+        }
+
+        ctx.remove_listener(fn);
+    }, { strategy: "document-ready" });
+
+    return ret;
 }
 
 export const use_suspend = (fn: QRL<(tf: TaskCtx) => Promise<void>>) => {
@@ -81,9 +100,9 @@ export const use_suspend = (fn: QRL<(tf: TaskCtx) => Promise<void>>) => {
     useTask$(() => {
         ctx.add_listener(fn);
     });
-    useVisibleTask$(async (input) => {
+    useVisibleTask$(async (task_ctx) => {
         try {
-            await fn(input)
+            await fn(task_ctx)
         }
         catch (e: unknown) {
             console.warn("handling errors is not (correctly) implemented yet");

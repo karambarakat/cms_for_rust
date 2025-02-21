@@ -137,7 +137,7 @@ export default component$(() => {
             align-items: center;
             padding: 10px;
         }
-    `);
+`);
 
 
     return (
