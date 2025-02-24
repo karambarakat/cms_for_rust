@@ -1,0 +1,46 @@
+diff --git a/components/modal/index.d.ts b/components/modal/index.d.ts
+index 8d1e78a9eb3d414d843b7d8dd057e0409eeed42d..ce16b62af840018036ff59597a4418eef1b242f3 100644
+--- a/components/modal/index.d.ts
++++ b/components/modal/index.d.ts
+@@ -1,4 +1,5 @@
+ export { HModalRoot as Root } from './modal-root';
++export { modalContextId as context } from './modal-context';
+ export { HModalPanel as Panel } from './modal-panel';
+ export { HModalContent as Content } from './modal-content';
+ export { HModalFooter as Footer } from './modal-footer';
+diff --git a/components/modal/index.qwik.cjs b/components/modal/index.qwik.cjs
+index 3fcde87a25ab2b6290f00bc87e97ff73f83e8845..c988290c1b7c73b25973b98dc58cd2fd35dda525 100644
+--- a/components/modal/index.qwik.cjs
++++ b/components/modal/index.qwik.cjs
+@@ -1,5 +1,6 @@
+ "use strict";
+ Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
++const context = require("./modal-context.qwik.cjs");
+ const modalRoot = require("./modal-root.qwik.cjs");
+ const modalPanel = require("./modal-panel.qwik.cjs");
+ const modalContent = require("./modal-content.qwik.cjs");
+@@ -9,6 +10,7 @@ const modalTitle = require("./modal-title.qwik.cjs");
+ const modalDescription = require("./modal-description.qwik.cjs");
+ const modalTrigger = require("./modal-trigger.qwik.cjs");
+ const modalClose = require("./modal-close.qwik.cjs");
++exports.context = context;
+ exports.Root = modalRoot.HModalRoot;
+ exports.Panel = modalPanel.HModalPanel;
+ exports.Content = modalContent.HModalContent;
+diff --git a/components/modal/index.qwik.mjs b/components/modal/index.qwik.mjs
+index bc3cfdb598467b78fe8f83ca9ccfcc6d36b2aa0f..24983f6a90d4d49d16ea10a96758909809594366 100644
+--- a/components/modal/index.qwik.mjs
++++ b/components/modal/index.qwik.mjs
+@@ -1,3 +1,4 @@
++import { modalContextId } from "./modal-context.qwik.mjs";
+ import { HModalRoot } from "./modal-root.qwik.mjs";
+ import { HModalPanel } from "./modal-panel.qwik.mjs";
+ import { HModalContent } from "./modal-content.qwik.mjs";
+@@ -8,6 +9,7 @@ import { HModalDescription } from "./modal-description.qwik.mjs";
+ import { HModalTrigger } from "./modal-trigger.qwik.mjs";
+ import { HModalClose } from "./modal-close.qwik.mjs";
+ export {
++    modalContextId as context,
+   HModalClose as Close,
+   HModalContent as Content,
+   HModalDescription as Description,

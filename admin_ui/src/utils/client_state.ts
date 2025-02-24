@@ -1,6 +1,7 @@
 import { QRL, Signal, createContextId, useContext, useContextProvider, useSignal, useVisibleTask$ } from "@builder.io/qwik";
 import { useNavigate } from "@builder.io/qwik-city";
 import * as v from "valibot";
+import { fetch_client } from "./client_fetch";
 
 const client_state_context = createContextId<Signal<client_state>>("client_state");
 
@@ -93,32 +94,6 @@ export const client_state_provider = () => {
         events.addEventListener("set_data", to as any)
         cleanup(() => events.removeEventListener("set_data", to as any));
     });
-
-    // // @deprecated
-    // useVisibleTask$(({ cleanup }) => {
-    //     const logout = () => {
-    //         if (sig.value.state === "authenticated") {
-    //             sig.value = {
-    //                 state: "need_auth",
-    //                 backend_url: sig.value.backend_url,
-    //             };
-    //         } else {
-    //             throw new Error("should not logout while you are not authenticated")
-    //         }
-    //     }
-    //     events.addEventListener("logout", logout);
-    //     cleanup(() => events.removeEventListener("logout", logout));
-    //
-    //     const auth = () => {
-    //         const state = localStorage.getItem("client_state");
-    //         if (!state) throw new Error()
-    //         const pars = v.parse(client_state_schema, JSON.parse(state));
-    //         sig.value = pars;
-    //     }
-    //
-    //     events.addEventListener("login", auth);
-    //     cleanup(() => events.removeEventListener("login", auth));
-    // });
 };
 
 const gaurd_context = createContextId<Signal<boolean>>("gaurd_context");
@@ -168,7 +143,7 @@ export const use_client_state = () => {
 const backend_url = v.pipe(v.string(), v.url());
 const token = v.pipe(v.string(), v.minLength(1));
 
-export const client_state_schema = v.variant("state", [
+const client_state_schema_1 = v.variant("state", [
     v.object({
         state: v.literal("authenticated"),
         backend_url,
@@ -191,12 +166,34 @@ export const client_state_schema = v.variant("state", [
     }),
 ]);
 
-const client_state_schema2 = v.pipe(
-    client_state_schema,
+var global_no_connection_check: null | "running" = null;
+
+async function check_no_connection() {
+    let state = get_auth_state();
+
+    if (!state.success || state.ok.state !== "authenticated") {
+        return
+    }
+
+
+    // todo
+    // let res: any = await fetch("/api" as any, null, state.ok);
+
+    global_no_connection_check = null;
+}
+
+export const client_state_schema = v.pipe(
+    client_state_schema_1,
     v.transform((input) => {
         if (input.state === "authenticated" && !token_is_valie(input.token)) {
-            return { state: "need_auth", backend_url: input.backend_url }
+            return { state: "need_auth" as const, backend_url: input.backend_url }
         }
+
+        if (input.state === "authenticated" && global_no_connection_check !== null) {
+            global_no_connection_check = "running"
+            check_no_connection();
+        }
+
         return input
     })
 );

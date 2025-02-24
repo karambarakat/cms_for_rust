@@ -13,6 +13,11 @@ export const one_schema = v.object({
         s_type: v.union([
             v.literal("String"),
             v.literal("Todo"),
+        ]),
+        js_type: v.union([
+            v.literal("string"),
+            v.literal("number"),
+            v.literal("boolean"),
         ])
     }))
 });

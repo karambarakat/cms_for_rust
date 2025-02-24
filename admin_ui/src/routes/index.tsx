@@ -1,6 +1,6 @@
-import { component$, useStylesScoped$, useVisibleTask$ } from "@builder.io/qwik";
+import { component$, useStylesScoped$ } from "@builder.io/qwik";
 import type { DocumentHead } from "@builder.io/qwik-city";
-import { get_auth_state, use_client_state } from "~/utils/client_state";
+import {  use_client_state } from "~/utils/client_state";
 
 export default component$(() => {
     useStylesScoped$(`
@@ -15,6 +15,7 @@ export default component$(() => {
     `);
 
     let state = use_client_state();
+
 
     return (
         <div class="root-index">

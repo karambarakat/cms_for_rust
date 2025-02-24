@@ -64,7 +64,6 @@ type Schema =
 //     return false;
 // }
 
-
 export async function fetch_client
     <S extends Schema, A extends Schema["action"]>
     (
